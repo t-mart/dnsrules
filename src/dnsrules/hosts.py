@@ -1,7 +1,7 @@
-"""Read the inventory that Ansible renders.
+"""Read `hosts.yml`, the file that Ansible renders.
 
 Ansible owns host names, addresses, group names, and membership. It writes
-`/etc/dnsrules/inventory.yml` at deploy time. dnsrules reads that file and
+`/etc/dnsrules/hosts.yml` at deploy time. dnsrules reads that file and
 never writes it.
 
 The file supplies three things: where to write each group's zone file, a name
@@ -19,8 +19,8 @@ import yaml
 NAME_MAX_LENGTH = 64
 
 
-class InvalidInventory(ValueError):
-    """The inventory is absent, or it does not match the format."""
+class InvalidHosts(ValueError):
+    """The file is absent, or it does not match the format."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +38,7 @@ class Host:
 
 
 @dataclass(frozen=True, slots=True)
-class Inventory:
+class Hosts:
     groups: dict[str, Group]  # keyed by group name
     hosts: tuple[Host, ...]
     names: dict[str, str]  # address to host name
@@ -46,21 +46,21 @@ class Inventory:
 
 def _object(entry: object, path: Path) -> dict:
     if not isinstance(entry, dict):
-        raise InvalidInventory(f"{path} holds an entry that is not an object.")
+        raise InvalidHosts(f"{path} holds an entry that is not an object.")
     return entry
 
 
 def _field(entry: dict, key: str, path: Path) -> str:
     value = entry.get(key)
     if not isinstance(value, str) or not value:
-        raise InvalidInventory(f"{path} holds an entry with no {key}.")
+        raise InvalidHosts(f"{path} holds an entry with no {key}.")
     return value
 
 
 def _strings(entry: dict, key: str, path: Path) -> tuple[str, ...]:
     values = entry.get(key, [])
     if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
-        raise InvalidInventory(f"{path}: {key} must be a list of strings.")
+        raise InvalidHosts(f"{path}: {key} must be a list of strings.")
     return tuple(values)
 
 
@@ -70,7 +70,7 @@ def _group(raw: object, path: Path) -> Group:
     # The zone name becomes an argument to auth_zone_reload. A space would
     # split it into two arguments.
     if zone.split() != [zone]:
-        raise InvalidInventory(f"{path}: the zone name {zone!r} holds whitespace.")
+        raise InvalidHosts(f"{path}: the zone name {zone!r} holds whitespace.")
     return Group(
         name=_field(entry, "name", path),
         zone=zone,
@@ -87,31 +87,31 @@ def _host(raw: object, path: Path) -> Host:
     )
 
 
-def load(path: Path) -> Inventory:
-    """Read the inventory. Raises InvalidInventory for anything unusable.
+def load(path: Path) -> Hosts:
+    """Read `hosts.yml`. Raises InvalidHosts for anything unusable.
 
-    An absent file is an error, not an empty inventory. Empty would render
-    every zone file with no rules in it.
+    An absent file is an error, not an empty result. Empty would render every
+    zone file with no rules in it.
     """
     try:
         raw = yaml.safe_load(path.read_text())
     except FileNotFoundError as error:
-        raise InvalidInventory(
+        raise InvalidHosts(
             f"{path} does not exist. Ansible renders it on the router. Set "
-            f"DNSRULES_INVENTORY_PATH to point elsewhere."
+            f"DNSRULES_HOSTS_PATH to point elsewhere."
         ) from error
     except yaml.YAMLError as error:
-        raise InvalidInventory(f"{path} is not valid YAML: {error}") from error
+        raise InvalidHosts(f"{path} is not valid YAML: {error}") from error
     if not isinstance(raw, dict):
-        raise InvalidInventory(f"{path} does not hold an object.")
+        raise InvalidHosts(f"{path} does not hold an object.")
 
     groups: dict[str, Group] = {}
     for entry in raw.get("groups", []):
         group = _group(entry, path)
         if group.name in groups:
-            raise InvalidInventory(f"{path} names the group {group.name} twice.")
+            raise InvalidHosts(f"{path} names the group {group.name} twice.")
         groups[group.name] = group
 
     hosts = tuple(_host(entry, path) for entry in raw.get("hosts", []))
     names = {address: host.name for host in hosts for address in host.addresses}
-    return Inventory(groups=groups, hosts=hosts, names=names)
+    return Hosts(groups=groups, hosts=hosts, names=names)

@@ -34,13 +34,13 @@ def test_the_rules_page_needs_a_login(client):
     assert client.get("/rules/").status_code == 302
 
 
-def test_the_page_lists_a_group_for_each_inventory_entry(client, admin, zone_settings):
+def test_the_page_lists_a_group_for_each_entry(client, admin, zone_settings):
     body = client.get("/rules/").content.decode()
     assert "kids" in body
     assert "adults" in body
 
 
-def test_a_visit_gives_every_inventory_group_a_row(client, admin, zone_settings):
+def test_a_visit_gives_every_group_a_row(client, admin, zone_settings):
     client.get("/rules/")
     assert [group.name for group in Group.objects.all()] == ["adults", "kids"]
 
@@ -159,8 +159,8 @@ def test_a_stale_group_takes_no_new_rules(client, admin, zone_settings):
     assert Rule.objects.count() == 0
 
 
-def test_a_missing_inventory_reports_itself(client, admin, zone_settings, tmp_path):
-    zone_settings.INVENTORY_PATH = tmp_path / "missing.yml"
+def test_a_missing_hosts_file_reports_itself(client, admin, zone_settings, tmp_path):
+    zone_settings.HOSTS_PATH = tmp_path / "missing.yml"
     response = client.get("/rules/")
     assert response.status_code == 503
     assert "does not exist" in response.content.decode()

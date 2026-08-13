@@ -3,8 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    {# htmx 4 swaps every response except 204 and 304. Keep 4xx swappable so a
-       form can answer 422 with its own errors, but never swap a server fault. #}
+    {% comment %}
+      htmx 4 swaps every response except 204 and 304. Keep 4xx swappable so a
+      form can answer 422 with its own errors, but never swap a server fault.
+    {% endcomment %}
     <meta name="htmx-config" content='{"noSwap": [204, 304, "5xx"]}'>
     <title>{% block title %}dnsrules{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'dnsrules/app.css' %}">

@@ -18,7 +18,7 @@ interfaces it uses on the router.
 
 ```
 cp .env.example .env
-just inventory
+just hosts
 just manage migrate
 just manage createsuperuser
 just dev
@@ -125,7 +125,7 @@ from starting, and the whole house loses DNS.
 
 | Setting | Purpose |
 | --- | --- |
-| `DNSRULES_INVENTORY_PATH` | the file Ansible renders, read only |
+| `DNSRULES_HOSTS_PATH` | the file Ansible renders, read only |
 | `DNSRULES_ZONE_MODE` | mode for each zone file dnsrules writes |
 | `DNSRULES_CONTROL_SOCKET` | unbound's control socket |
 
@@ -138,10 +138,10 @@ dnsrules reads the SOA header back out of each zone file rather than keeping its
 own copy. Ansible writes that header once, with `force: false`, and never
 touches the file again.
 
-## The inventory
+## The hosts file
 
 Ansible owns host names, addresses, group names, and membership. It renders
-`/etc/dnsrules/inventory.yml` at deploy time from `vars/hosts.yml`. dnsrules
+`/etc/dnsrules/hosts.yml` at deploy time from `vars/hosts.yml`. dnsrules
 reads that file and never writes it.
 
 ```yaml
@@ -160,15 +160,15 @@ zone file. unbound is chrooted to `/etc/unbound`, which is why the rules live
 under `/etc`. If mace drops the chroot, Ansible changes the paths and dnsrules
 needs no change.
 
-A missing inventory is an error, not an empty inventory. An empty one would
-render every zone file with no rules in it.
+A missing file is an error, not an empty one. Empty would render every zone
+file with no rules in it.
 
-A group that leaves the inventory keeps its rules and its row. Nothing renders
+A group that leaves the file keeps its rules and its row. Nothing renders
 for it, because nothing says where to write. The rules page marks it stale.
 Membership changes need an Ansible deploy and then
 `unbound-control reload_keep_cache`.
 
-Run `just inventory` to write a stand-in into `var/` for development.
+Run `just hosts` to write a stand-in into `var/` for development.
 
 Three commands drive the zone files:
 
@@ -183,6 +183,55 @@ rules first, and does nothing more when none expired. `export` prints every
 rule as YAML, or as JSON with `--format json`. The group structure lives in the
 mace repository and survives a rebuild. The rules live only in Postgres, so
 commit that export as the backup.
+
+## Fixtures
+
+The dnstap stream and the RPZ log lines use formats this project does not
+control. A stream written here would test the reader against its own
+assumptions, so one shared misreading would pass every test and fail on the
+router. Capture real bytes instead, and replay them.
+
+`tests/fixtures/dnstap.fstrm` holds a capture. **It is never committed.** It
+records every DNS query the house made during its window, which is a browsing
+history. `.gitignore` lists it, and every test that needs it skips when it is
+absent. `pytest` runs with `-rs`, so a skip always prints its reason.
+
+`.fstrm` is Frame Streams, the envelope around each message: a 4 byte
+big-endian length, then the payload. A zero length escapes to a control frame.
+Each data frame payload is a protobuf `dnstap.Dnstap` message.
+
+To capture one, write this listener on the router:
+
+```nu
+'import socket
+import sys
+
+path, port = sys.argv[1], int(sys.argv[2])
+listener = socket.create_server(("127.0.0.1", port))
+print(f"Listening on 127.0.0.1:{port}. Stop with Ctrl-C.")
+connection, peer = listener.accept()
+total = 0
+try:
+    with open(path, "wb") as out:
+        while chunk := connection.recv(65536):
+            out.write(chunk)
+            total += len(chunk)
+finally:
+    print(f"Wrote {total} bytes to {path}.")
+' | save --force /tmp/capture.py
+```
+
+Run it for about ten seconds, then stop it with Ctrl-C. unbound connects out,
+so nothing needs to be installed and no port needs to open.
+
+```nu
+python3 /tmp/capture.py /tmp/dnstap.fstrm 6000
+strings /tmp/dnstap.fstrm | uniq | first 50
+scp mace:/tmp/dnstap.fstrm tests/fixtures/dnstap.fstrm
+```
+
+Read it with `strings` before it leaves the router. Delete it and capture again
+at a quieter moment if it holds anything you would rather not keep.
 
 ## Deployment
 

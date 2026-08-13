@@ -3,8 +3,8 @@
 Build order for `dnsrules`. See [the design](dns-visibility-handoff.md) for the
 interfaces, the constraints, and the reasoning.
 
-Order matters. dnstap is off, and it blocks only the query log. The rules half
-needs one `mace` change and nothing else, so build it first.
+Order matters. The rules half needs one `mace` change and nothing else, so it
+came first. dnstap is on now, so the query log is next.
 
 ## 0. Skeleton
 
@@ -43,16 +43,16 @@ The write path. It needs Postgres and the `mace` group change.
 - [x] Refuse to render when the database read fails. An empty render silently
       drops every rule
 - [x] `prune` and `reconcile` management commands
-- [x] `inventory.py`: read `/etc/dnsrules/inventory.yml`. Never write it
-- [x] Treat a missing inventory as an error. An empty one renders every zone
+- [x] `hosts.py`: read `/etc/dnsrules/hosts.yml`. Never write it
+- [x] Treat a missing hosts file as an error. An empty one renders every zone
       file with no rules in it
-- [x] `Group` model, keyed by the name in the inventory
+- [x] `Group` model, keyed by the name in `hosts.yml`
 - [x] Add a group to `Rule`. A rule belongs to exactly one group, and a domain
       holds one rule in each group
 - [x] Reconcile every group: one file and one `auth_zone_reload` for each
-- [x] Replace the zone path and zone name settings. Both now come from the
-      inventory, per group
-- [x] Read staleness from the inventory. A stored flag drifts on the next deploy
+- [x] Replace the zone path and zone name settings. Both now come from
+      `hosts.yml`, per group
+- [x] Read staleness from `hosts.yml`. A stored flag drifts on the next deploy
 - [x] `export` management command: print every rule as YAML, or as JSON
       with `--format json`
 - [x] Rules page: list by group, add, edit, remove, with htmx
@@ -70,13 +70,19 @@ The RPZ log lines and the dnstap stream carry a format this project does not
 control. A generator written here tests the decoder against its own
 assumptions, so one shared misreading passes every test and fails on the router.
 
-Capture real bytes from `mace` once, commit them, and replay them. Synthesize
-only for a case that capture cannot reach, such as a truncated frame.
+Capture real bytes from `mace` once and replay them. Synthesize only for a
+case that capture cannot reach, such as a truncated frame.
+
+A capture stays out of git when it holds real traffic. The tests that need one
+skip without it.
 
 - [ ] Capture `journalctl --unit unbound --output json` lines that cover each
       RPZ action, and commit them
-- [ ] Capture a dnstap framestream to a file, and commit a short one
-- [ ] Record the capture commands in the README, so a fixture can be refreshed
+- [x] Capture a dnstap framestream to a file
+- [x] Keep the capture out of git. It holds every query the house made during
+      the capture window. Tests that need it skip, and pytest runs with `-rs`
+      so the skip always prints its reason
+- [x] Record the capture recipe in the README, so a fixture can be refreshed
 
 The control socket is the exception. Its protocol is one line of text, so the
 tests already run a real unix socket and assert the bytes on the wire.
@@ -94,10 +100,13 @@ journald carries these today, so this needs nothing from `mace`.
 
 ## 5. Query log ingest
 
-Blocked. `mace` must turn dnstap on first.
+dnstap is on, and a capture is in hand.
 
-- [ ] `unbound/dnstap.py`: decode framestreams and protobuf. Look for an
-      existing receiver library before you write the framing by hand
+- [x] `unbound/framestream.py`: read the frame envelope. Written by hand
+      because it is 60 lines of stdlib, and a library would add a dependency
+      for that
+- [ ] `unbound/dnstap.py`: decode the protobuf payload. Decide the dependency
+      first: hand-rolled reader, or protobuf plus dnspython
 - [ ] Keep client query and client response messages. Reply time is the gap
       between them
 - [ ] `ingest` management command, batching inserts on a one second tick
@@ -130,7 +139,7 @@ Blocked. `mace` must turn dnstap on first.
 
 ## 8. Client names
 
-- [ ] Name each address from the inventory. A host has several addresses
+- [ ] Name each address from `hosts.yml`. A host has several addresses
 - [ ] Read tailnet names from `tailscale status --json` at runtime
 - [ ] Map `127.0.0.1` to `mace`
 - [ ] Mark `10.0.1.0/24` unmanaged. Those hosts get no blocking
@@ -159,9 +168,8 @@ Blocked. `mace` must turn dnstap on first.
 | --- | --- |
 | Define the groups: tags, membership, and two `rpz` blocks each | section 2 |
 | Create `/etc/unbound/rules/`, and each zone file once | section 2 |
-| Render `/etc/dnsrules/inventory.yml` from `vars/hosts.yml` | sections 2 and 8 |
+| Render `/etc/dnsrules/hosts.yml` from `vars/hosts.yml` | sections 2 and 8 |
 | Remove `dont_block` and the overrides zone | section 2 |
-| Turn on dnstap | section 5 and everything after it |
 | Create the user, and grant the socket and the rules directory | section 9 |
 | Open the port in `vars/nftables.yml` | reaching the site at all |
 

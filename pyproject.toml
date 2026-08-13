@@ -27,6 +27,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "django-tailwind-cli>=4.6.2",
+    "dnspython>=2.8.0",
     "pytest>=9.1.1",
     "pytest-django>=4.14.0",
     "ruff>=0.16.2",
@@ -61,4 +62,6 @@ missing-argument = "ignore"
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dnsrules.settings"
 testpaths = ["tests"]
-addopts = "--strict-markers"
+# -rs prints the reason for every skip. A missing dnstap capture must be
+# visible, not silent.
+addopts = "--strict-markers -rs"

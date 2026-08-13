@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_http_methods
 from django_htmx.middleware import HtmxDetails
 
-from dnsrules.inventory import InvalidInventory, Inventory
+from dnsrules.hosts import Hosts, InvalidHosts
 from dnsrules.rules import services
 from dnsrules.rules.forms import RuleForm
 from dnsrules.rules.models import Group, Rule
@@ -28,8 +28,8 @@ class Request(HttpRequest):
     htmx: HtmxDetails
 
 
-def _sections(entries: Inventory) -> list[dict]:
-    """Inventory groups in file order, then any stale group that holds rules.
+def _sections(entries: Hosts) -> list[dict]:
+    """Groups in `hosts.yml` order, then any stale group that holds rules.
 
     Only active rules. A rule past its expiry is out of the zone file already,
     and the next prune deletes the row.
@@ -48,7 +48,7 @@ def _sections(entries: Inventory) -> list[dict]:
     return sections
 
 
-def _context(entries: Inventory, **extra) -> dict:
+def _context(entries: Hosts, **extra) -> dict:
     groups = Group.objects.filter(name__in=list(entries.groups))
     context = {
         "sections": _sections(entries),
@@ -73,7 +73,7 @@ def _reconcile() -> str | None:
     """
     try:
         services.reconcile()
-    except (ControlError, InvalidInventory, OSError) as problem:
+    except (ControlError, InvalidHosts, OSError) as problem:
         logger.exception("The reconcile after a rule change failed.")
         return f"The rule is saved, but unbound was not updated: {problem}"
     return None
@@ -83,10 +83,10 @@ def _reconcile() -> str | None:
 @require_http_methods(["GET", "POST"])
 def index(request: Request) -> HttpResponse:
     try:
-        entries = services.read_inventory()
-    except InvalidInventory as problem:
+        entries = services.read_hosts()
+    except InvalidHosts as problem:
         return _render(request, {"error": str(problem)}, status=503)
-    # A deploy adds a group to the inventory. Give it a row here, so a rule can
+    # A deploy adds a group to `hosts.yml`. Give it a row here, so a rule can
     # point at it without waiting for the next reconcile.
     services.sync_groups(entries)
     if request.method == "GET":
@@ -105,8 +105,8 @@ def index(request: Request) -> HttpResponse:
 def rule(request: Request, pk: int) -> HttpResponse:
     target = get_object_or_404(Rule, pk=pk)
     try:
-        entries = services.read_inventory()
-    except InvalidInventory as problem:
+        entries = services.read_hosts()
+    except InvalidHosts as problem:
         return _render(request, {"error": str(problem)}, status=503)
     groups = Group.objects.filter(name__in=list(entries.groups))
     if request.method == "DELETE":

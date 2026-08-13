@@ -9,7 +9,7 @@ from django.core.management import call_command
 from django.db import IntegrityError
 from django.utils import timezone
 
-from dnsrules.inventory import InvalidInventory
+from dnsrules.hosts import InvalidHosts
 from dnsrules.rules import services
 from dnsrules.rules.models import Group, Rule, Source
 from dnsrules.unbound.control import ControlError
@@ -76,7 +76,7 @@ def test_defaults_are_a_permanent_manual_block(kids):
     assert rule.is_expired is False
 
 
-def test_reconcile_creates_a_row_for_each_inventory_group(zone_settings):
+def test_reconcile_creates_a_row_for_each_group(zone_settings):
     services.reconcile()
     assert [group.name for group in Group.objects.all()] == ["adults", "kids"]
 
@@ -117,7 +117,7 @@ def test_reconcile_is_idempotent(zone_settings):
     assert services.reconcile() == services.reconcile()
 
 
-def test_reconcile_skips_a_group_that_left_the_inventory(zone_settings, caplog):
+def test_reconcile_skips_a_group_that_left_the_file(zone_settings, caplog):
     make(Group.objects.create(name="guests"), "example.com")
     written = services.reconcile()
     assert "guests" not in written
@@ -125,16 +125,16 @@ def test_reconcile_skips_a_group_that_left_the_inventory(zone_settings, caplog):
     assert "stale" in caplog.text
 
 
-def test_stale_groups_reads_the_inventory(zone_settings):
+def test_stale_groups_reads_the_file(zone_settings):
     guests = Group.objects.create(name="guests")
     services.reconcile()
-    entries = services.read_inventory()
+    entries = services.read_hosts()
     assert list(services.stale_groups(entries)) == [guests]
 
 
-def test_reconcile_refuses_to_run_without_an_inventory(zone_settings, tmp_path):
-    zone_settings.INVENTORY_PATH = tmp_path / "missing.yml"
-    with pytest.raises(InvalidInventory):
+def test_reconcile_refuses_to_run_without_a_hosts_file(zone_settings, tmp_path):
+    zone_settings.HOSTS_PATH = tmp_path / "missing.yml"
+    with pytest.raises(InvalidHosts):
         services.reconcile()
 
 

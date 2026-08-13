@@ -52,24 +52,48 @@ from starting, and the whole house loses DNS.
 
 | Interface | Direction | Purpose | Ready? |
 | --- | --- | --- | --- |
-| dnstap socket | read | every query and answer | **no, see below** |
+| dnstap socket | read | every query and answer | yes |
 | journald, `unbound` unit | read | which policy blocked, and why | yes |
 | `/etc/unbound/rules/<group>.zone` | write | the rules | needs the mace change |
 | `unbound-control` socket | write | reload a zone, read counters | yes |
-| `/etc/dnsrules/inventory.yml` | read | groups, hosts, and names | needs the mace change |
+| `/etc/dnsrules/hosts.yml` | read | groups, hosts, and names | needs the mace change |
 
-## 1. The query log needs dnstap, which is off
+## 1. The query log comes from dnstap
 
-This blocks the log table. `mace` logs RPZ matches only. A block writes a line.
-A normal resolution writes nothing.
+The RPZ log alone is not enough. A block writes a line, and a normal resolution
+writes nothing, so it names the blocks and never the traffic.
 
-unbound on `mace` is built with `--enable-dnstap`. dnstap emits every client
-query and every client answer as structured binary messages. It covers cache
-hits, because it taps the client interface, not the resolver.
+unbound on `mace` is built with `--enable-dnstap`, and `mace` now turns it on.
+dnstap emits every client query and every client answer as structured binary
+messages. It covers cache hits, because it taps the client interface, not the
+resolver.
 
 Use `dnstap-ip` at `127.0.0.1`. dnsrules listens, and unbound connects out. A
 unix socket must sit inside the chroot and stay connectable by the `unbound`
 user. That is solvable work for no gain.
+
+The block in `mace`:
+
+```
+dnstap:
+    dnstap-enable: yes
+    dnstap-ip: "127.0.0.1@6000"
+    dnstap-tls: no
+    dnstap-bidirectional: no
+    dnstap-log-client-query-messages: yes
+    dnstap-log-client-response-messages: yes
+```
+
+Three traps, all verified in the unbound 1.26 source:
+
+- **`dnstap-tls` defaults to yes.** Leave it out and unbound tries TLS against a
+  plain socket, so nothing ever arrives.
+- **A missing `@port` means port 53.** `extstrtoaddr` takes `UNBOUND_DNS_PORT`
+  as its default, so unbound would connect to itself. Always write the port.
+- **`dnstap-bidirectional` defaults to yes.** In that mode the receiver must
+  answer READY with ACCEPT, and STOP with FINISH. With `no`, unbound sends a
+  START control frame and then data frames, and the receiver only reads. That
+  is less code here, and it lets a plain socket dump capture a fixture.
 
 Keep client query and client response messages. Reply time is the gap between
 the two. The upstream column needs forwarder query messages as well, and those
@@ -239,9 +263,9 @@ Other useful commands:
   flush. The admin runs this after a membership deploy.
 - `unbound-control status` and `dump_infra` report health and upstream latency.
 
-## 5. The inventory file
+## 5. The hosts file
 
-Ansible renders `/etc/dnsrules/inventory.yml` at deploy time, from
+Ansible renders `/etc/dnsrules/hosts.yml` at deploy time, from
 `vars/hosts.yml`. dnsrules reads it and never writes it.
 
 YAML, because the source is YAML and the whole `mace` repository is YAML. There
@@ -258,8 +282,8 @@ hosts:
     groups: [kids]
 ```
 
-A missing file is an error, not an empty inventory. An empty one renders every
-zone file with no rules in it.
+A missing file is an error, not an empty one. Empty renders every zone file
+with no rules in it.
 
 It supplies three things:
 
@@ -275,9 +299,9 @@ those.
 
 Rules for the edge cases:
 
-- **A group leaves the inventory.** Its rules stay in the database. Mark them
+- **A group leaves `hosts.yml`.** Its rules stay in the database. Mark them
   stale in the UI. Write no file for that group, because there is no path.
-- **A host leaves the inventory.** No rule is affected, because rules belong to
+- **A host leaves `hosts.yml`.** No rule is affected, because rules belong to
   groups. The address shows as unknown in the log.
 - **Dynamic clients.** `systemd-networkd` serves the pool `10.0.1.0/24`. Those
   hosts are absent from `vars/hosts.yml`, so they carry no tag and get no
@@ -285,7 +309,7 @@ Rules for the edge cases:
   Static leases use `10.0.0.0/24`, so the address alone tells you which is which.
 - **Tailnet clients.** One `access-control-tag` covers all of `100.64.0.0/10`
   and puts it in one group. Read `tailscale status --json` at runtime for names
-  that the inventory lacks.
+  that `hosts.yml` lacks.
 - `127.0.0.1` is `mace` itself, through `systemd-resolved`.
 
 ## Constraints
@@ -304,7 +328,7 @@ Rules for the edge cases:
   chroots, so a path outside that tree resolves inside it and the zone fails to
   load. Only `chroot: ""` changes this, and that drops a layer of defence.
 
-  The inventory carries each zone file path for this reason. If `mace` drops the
+  `hosts.yml` carries each zone file path for this reason. If `mace` drops the
   chroot, Ansible changes the paths and dnsrules needs no change.
 
 ## Shape
@@ -442,20 +466,19 @@ and dnstap drops rather than blocks unbound. That is the right way to fail.
 
 Tracked in that repository under "Work that returns here".
 
-1. **Turn on dnstap**, over `dnstap-ip` at `127.0.0.1`. Blocks the log table.
-2. **Define the groups.** `define-tag` for each group name, an
+1. **Define the groups.** `define-tag` for each group name, an
    `access-control-tag` for each host address, and two `rpz` blocks for each
    group. Put the rules zone first.
-3. **Create `/etc/unbound/rules/`**, owned `dnsrules:unbound`, mode 0750. Create
+2. **Create `/etc/unbound/rules/`**, owned `dnsrules:unbound`, mode 0750. Create
    each rules zone file once, empty, with `force: false`.
-4. **Render `/etc/dnsrules/inventory.yml`** from `vars/hosts.yml` at deploy
+3. **Render `/etc/dnsrules/hosts.yml`** from `vars/hosts.yml` at deploy
    time.
-5. **Remove `dont_block` from `vars/unbound_blocklist.yml`**, and remove the
+4. **Remove `dont_block` from `vars/unbound_blocklist.yml`**, and remove the
    `privacy_blocklist_overrides` zone. Those entries move into dnsrules as allow
    rules.
-6. **Add the `dnsrules` user**, and add the `unbound.service` drop-in for the
+5. **Add the `dnsrules` user**, and add the `unbound.service` drop-in for the
    control socket.
-7. **Open the website port** in `vars/nftables.yml`.
+6. **Open the website port** in `vars/nftables.yml`.
 
 ## Verification recipe
 

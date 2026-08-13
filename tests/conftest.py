@@ -1,5 +1,12 @@
+from pathlib import Path
+
 import pytest
 import yaml
+
+# Real bytes from mace. Never committed: the capture holds every DNS query the
+# house made during its window, which is a browsing history. .gitignore lists
+# it, and the tests that need it skip when it is absent.
+CAPTURE = Path(__file__).parent / "fixtures" / "dnstap.fstrm"
 
 # Copied from the "Create the runtime rules zone if absent" task in mace's
 # playbook.yml. That task runs once, with force: false, so this is the header
@@ -43,8 +50,8 @@ def zone_files(tmp_path):
 
 
 @pytest.fixture
-def inventory_path(tmp_path, zone_files):
-    path = tmp_path / "inventory.yml"
+def hosts_path(tmp_path, zone_files):
+    path = tmp_path / "hosts.yml"
     path.write_text(
         yaml.safe_dump(
             {
@@ -70,12 +77,27 @@ def inventory_path(tmp_path, zone_files):
 
 
 @pytest.fixture
-def zone_settings(settings, inventory_path):
-    """Point dnsrules at a throwaway inventory, with no unbound to reload."""
-    settings.INVENTORY_PATH = inventory_path
+def zone_settings(settings, hosts_path):
+    """Point dnsrules at a throwaway hosts.yml, with no unbound to reload."""
+    settings.HOSTS_PATH = hosts_path
     settings.UNBOUND_ZONE_MODE = 0o644
     settings.UNBOUND_CONTROL_SOCKET = ""
     return settings
+
+
+@pytest.fixture(scope="session")
+def dnstap_capture():
+    """The captured dnstap stream, or a skip when nobody captured one.
+
+    Skipping is the right answer here. The format belongs to unbound, so a
+    stream written by this project would test the reader against its own
+    assumptions. Better to run nothing than to run something misleading.
+
+    Make one with the recipe under "Fixtures" in the README.
+    """
+    if not CAPTURE.is_file():
+        pytest.skip(f"No dnstap capture at {CAPTURE}. See 'Fixtures' in the README.")
+    return CAPTURE.read_bytes()
 
 
 def rules_in(text):

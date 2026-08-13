@@ -115,9 +115,9 @@ def env_path(name: str, default: str) -> Path:
     return Path(BASE_DIR, env(name, default))
 
 
-# Ansible renders the inventory at deploy time. It carries the groups, their
-# zone names, and their zone file paths, so no setting names a zone file.
-INVENTORY_PATH = env_path("INVENTORY_PATH", "/etc/dnsrules/inventory.yml")
+# Ansible renders hosts.yml at deploy time. It carries the groups, their zone
+# names, and their zone file paths, so no setting names a zone file.
+HOSTS_PATH = env_path("HOSTS_PATH", "/etc/dnsrules/hosts.yml")
 
 # The zone files are group dnsrules:unbound. unbound reads them through the
 # group, so they need no world bit.

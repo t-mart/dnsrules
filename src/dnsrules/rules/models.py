@@ -13,7 +13,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-from dnsrules.inventory import NAME_MAX_LENGTH
+from dnsrules.hosts import NAME_MAX_LENGTH
 from dnsrules.unbound.domain import MAX_LENGTH, InvalidDomain, normalize
 from dnsrules.unbound.zone import Action
 
@@ -30,12 +30,12 @@ class Source(models.TextChoices):
 
 
 class Group(models.Model):
-    """A group from the inventory.
+    """A group from `hosts.yml`.
 
     Ansible owns the name, the membership, and the zone file path. This row
     exists so a rule can point at a group, and it holds nothing else. A group
-    that leaves the inventory keeps its rules and its row. Nothing renders for
-    it, because the inventory no longer says where to write.
+    that leaves the file keeps its rules and its row. Nothing renders for it,
+    because nothing says where to write.
     """
 
     name = models.CharField(max_length=NAME_MAX_LENGTH, unique=True)

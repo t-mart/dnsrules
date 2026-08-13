@@ -19,3 +19,6 @@ wheels/
 var/
 
 unbound-checkout/
+
+# Captured dnstap. Every query the house made in the capture window.
+tests/fixtures/dnstap.fstrm

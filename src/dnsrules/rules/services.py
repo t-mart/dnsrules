@@ -1,6 +1,6 @@
 """Reconcile the rules table into the zone files, one file for each group.
 
-The order is fixed: read the inventory, take the lock, read the rules, render,
+The order is fixed: read `hosts.yml`, take the lock, read the rules, render,
 write, reload. Every step after a read depends on that read having worked.
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 from django.conf import settings
 from django.db import connection, models, transaction
 
-from dnsrules import inventory
+from dnsrules import hosts
 from dnsrules.rules.models import Group, Rule
 from dnsrules.unbound import control, zone
 
@@ -23,25 +23,25 @@ logger = logging.getLogger(__name__)
 LOCK_KEY = 0x646E7372  # "dnsr"
 
 
-def read_inventory() -> inventory.Inventory:
-    return inventory.load(settings.INVENTORY_PATH)
+def read_hosts() -> hosts.Hosts:
+    return hosts.load(settings.HOSTS_PATH)
 
 
-def sync_groups(entries: inventory.Inventory) -> None:
-    """Give every inventory group a row, so a rule can point at it.
+def sync_groups(entries: hosts.Hosts) -> None:
+    """Give every group in `hosts.yml` a row, so a rule can point at it.
 
-    Nothing is deleted here. A group that leaves the inventory keeps its rules.
+    Nothing is deleted here. A group that leaves the file keeps its rules.
     """
     Group.objects.bulk_create(
         [Group(name=name) for name in entries.groups], ignore_conflicts=True
     )
 
 
-def stale_groups(entries: inventory.Inventory) -> models.QuerySet:
-    """Groups that hold rules but no longer appear in the inventory.
+def stale_groups(entries: hosts.Hosts) -> models.QuerySet:
+    """Groups that hold rules but no longer appear in `hosts.yml`.
 
-    Staleness is read from the inventory on each call rather than stored. A
-    stored flag drifts as soon as a deploy changes the file.
+    Staleness is read from the file on each call rather than stored. A stored
+    flag drifts as soon as a deploy changes the file.
     """
     return Group.objects.exclude(name__in=list(entries.groups))
 
@@ -60,7 +60,7 @@ def reconcile() -> dict[str, str]:
     failed reload then reports an error without losing the change, and the next
     reconcile converges the files on the table.
     """
-    entries = read_inventory()
+    entries = read_hosts()
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s)", [LOCK_KEY])
@@ -72,7 +72,7 @@ def reconcile() -> dict[str, str]:
             )
         for name in set(records) - set(entries.groups):
             logger.warning(
-                "The group %s is not in the inventory. Its %d rules are stale "
+                "The group %s is not in hosts.yml. Its %d rules are stale "
                 "and reach no zone file.",
                 name,
                 len(records[name]),

@@ -31,7 +31,7 @@ class RuleForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.order_fields(["group", "domain", "action", "duration", "note"])
         if groups is not None:
-            # A group that left the inventory takes no new rules. Nothing
+            # A group that left `hosts.yml` takes no new rules. Nothing
             # renders for it, because nothing says where to write.
             self.fields["group"].queryset = groups
         if self.instance.pk:

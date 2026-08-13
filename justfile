@@ -14,11 +14,11 @@ manage *ARGS:
 var:
     mkdir --parents var
 
-# write a stand-in for the inventory that Ansible renders on the router
-inventory: var
+# write a stand-in for the hosts file that Ansible renders on the router
+hosts: var
     #!/usr/bin/env bash
     set -euo pipefail
-    cat > var/inventory.yml <<EOF
+    cat > var/hosts.yml <<EOF
     groups:
       - name: home
         zone: rules_home
@@ -31,7 +31,7 @@ inventory: var
         addresses: [10.0.0.2, 100.71.4.9]
         groups: [kids]
     EOF
-    echo "Wrote var/inventory.yml."
+    echo "Wrote var/hosts.yml."
 
 # compile the stylesheet
 # --force is required: the up-to-date check reads the source css only, so a

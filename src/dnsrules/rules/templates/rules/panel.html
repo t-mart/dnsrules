@@ -1,5 +1,7 @@
-{# htmx 4 inheritance is explicit, so target and swap are declared once here
-   with :inherited. Every control below carries a method attribute only. #}
+{% comment %}
+  htmx 4 inheritance is explicit, so target and swap are declared once here
+  with :inherited. Every control below carries a method attribute only.
+{% endcomment %}
 <div id="rules"
      class="flex flex-col gap-8"
      hx-target:inherited="#rules"
@@ -31,8 +33,8 @@
       </h2>
       {% if section.stale %}
         <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          This group left the inventory. Its rules reach no zone file. Add the
-          group back in Ansible, or remove these rules.
+          This group left <code>hosts.yml</code>. Its rules reach no zone file.
+          Add the group back in Ansible, or remove these rules.
         </p>
       {% endif %}
       <table class="mt-2 w-full text-left text-sm">
