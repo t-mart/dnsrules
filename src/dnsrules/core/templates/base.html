@@ -19,6 +19,7 @@
       <a class="text-lg font-semibold" href="{% url 'dashboard' %}">dnsrules</a>
       {% if user.is_authenticated %}
         <nav class="flex items-baseline gap-4 text-sm">
+          <a class="underline underline-offset-4" href="{% url 'queries' %}">Queries</a>
           <a class="underline underline-offset-4" href="{% url 'rules' %}">Rules</a>
           <form method="post" action="{% url 'logout' %}">
             {% csrf_token %}

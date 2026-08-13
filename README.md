@@ -153,7 +153,20 @@ hosts:
   - name: clove
     addresses: [10.0.0.2, 100.71.4.9]
     groups: [kids]
+networks:
+  - name: lan
+    cidr: 10.0.0.0/24
+  - name: dhcp pool
+    cidr: 10.0.1.0/24
+    managed: false
+  - name: tailnet
+    cidr: 100.64.0.0/10
 ```
+
+The networks name each client's home and say whether any policy reaches it. A
+client in the DHCP pool is absent from `vars/hosts.yml`, so it carries no tag in
+`unbound.conf` and no rule reaches it. The log marks it unmanaged rather than
+leaving you to wonder.
 
 Each group carries its own zone name and zone file path, so no setting names a
 zone file. unbound is chrooted to `/etc/unbound`, which is why the rules live
@@ -218,6 +231,10 @@ with `response_time` and never with `query_time`, so reply time exists only
 across the pair. The key is client, port, name, and type, and it repeats,
 because clients reuse a source port. Each key holds a queue, and the oldest
 query takes the next answer.
+
+`/queries/` shows the rows, with a filter on each column and a control on each
+row. Block or allow a name from the row that shows it, for an hour or for good.
+A second click replaces the first rule rather than adding a second one.
 
 The table is partitioned by day. Measured on one sample, the house makes about
 250,000 queries a day, so 30 days is near 7.5 million rows. Dropping a partition

@@ -283,18 +283,30 @@ hosts:
   - name: clove
     addresses: [10.0.0.2, 10.0.0.15, 100.71.4.9]
     groups: [kids]
+networks:
+  - name: lan
+    cidr: 10.0.0.0/24
+  - name: dhcp pool
+    cidr: 10.0.1.0/24
+    managed: false
+  - name: tailnet
+    cidr: 100.64.0.0/10
 ```
 
 A missing file is an error, not an empty one. Empty renders every zone file
 with no rules in it.
 
-It supplies three things:
+It supplies four things:
 
 1. **Where to write.** Each group carries its zone file path and its zone name,
    so dnsrules needs no path convention and no extra setting.
 2. **Names for addresses.** The log table shows `clove`, not `10.0.0.2`. Include
    every address of a host, because a host has several interfaces.
 3. **Which group applies to which host.** For display only.
+4. **Which networks carry managed hosts.** A client outside every managed
+   network gets no blocking, because it carries no tag. The UI says so, which
+   explains the absence. Subnets belong here, not in the code: `mace` serves
+   the pool and knows its range.
 
 The `groups` field on a host is a copy for display. The real membership lives in
 the `access-control-tag` lines in `unbound.conf`. dnsrules never reads or writes
@@ -313,7 +325,8 @@ Rules for the edge cases:
 - **Tailnet clients.** One `access-control-tag` covers all of `100.64.0.0/10`
   and puts it in one group. Read `tailscale status --json` at runtime for names
   that `hosts.yml` lacks.
-- `127.0.0.1` is `mace` itself, through `systemd-resolved`.
+- `127.0.0.1` is `mace` itself, through `systemd-resolved`. List it and `::1`
+  among mace's own addresses, and dnsrules needs no rule for loopback.
 
 ## Constraints
 

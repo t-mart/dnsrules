@@ -3,6 +3,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from dnsrules import names
+
 # Real bytes from mace. Never committed: the capture holds every DNS query the
 # house made during its window, which is a browsing history. .gitignore lists
 # it, and the tests that need it skip when it is absent.
@@ -70,6 +72,11 @@ def hosts_path(tmp_path, zone_files):
                         "groups": ["kids"],
                     }
                 ],
+                "networks": [
+                    {"name": "lan", "cidr": "10.0.0.0/24"},
+                    {"name": "dhcp pool", "cidr": "10.0.1.0/24", "managed": False},
+                    {"name": "tailnet", "cidr": "100.64.0.0/10"},
+                ],
             }
         )
     )
@@ -83,6 +90,13 @@ def zone_settings(settings, hosts_path):
     settings.UNBOUND_ZONE_MODE = 0o644
     settings.UNBOUND_CONTROL_SOCKET = ""
     return settings
+
+
+@pytest.fixture(autouse=True)
+def no_tailscale(monkeypatch):
+    """No test shells out. A test that wants tailnet names passes them in."""
+    names._bucketed.cache_clear()
+    monkeypatch.setattr(names, "cached_tailnet", lambda *args, **kwargs: {})
 
 
 @pytest.fixture(scope="session")

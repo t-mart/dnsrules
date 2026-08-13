@@ -4,13 +4,16 @@ Ansible owns host names, addresses, group names, and membership. It writes
 `/etc/dnsrules/hosts.yml` at deploy time. dnsrules reads that file and
 never writes it.
 
-The file supplies three things: where to write each group's zone file, a name
-for each address, and which group applies to which host.
+The file supplies four things: where to write each group's zone file, a name
+for each address, which group applies to which host, and which networks carry
+managed hosts. Subnets belong there, not in this code: `mace` serves the DHCP
+pool and knows its range.
 
 YAML, because the source is `vars/hosts.yml` and the Ansible repository is YAML
 throughout. One format, and the rendered file stays readable by hand.
 """
 
+import ipaddress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,10 +41,25 @@ class Host:
 
 
 @dataclass(frozen=True, slots=True)
+class Network:
+    """A range of addresses, and whether any policy reaches it.
+
+    The DHCP pool is unmanaged: those hosts are absent from `vars/hosts.yml`,
+    so they carry no tag and no RPZ zone applies. Saying so in the UI explains
+    why a device gets no blocking.
+    """
+
+    name: str
+    cidr: ipaddress.IPv4Network | ipaddress.IPv6Network
+    managed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class Hosts:
     groups: dict[str, Group]  # keyed by group name
     hosts: tuple[Host, ...]
     names: dict[str, str]  # address to host name
+    networks: tuple[Network, ...]
 
 
 def _object(entry: object, path: Path) -> dict:
@@ -76,6 +94,19 @@ def _group(raw: object, path: Path) -> Group:
         zone=zone,
         zonefile=Path(_field(entry, "zonefile", path)),
     )
+
+
+def _network(raw: object, path: Path) -> Network:
+    entry = _object(raw, path)
+    text = _field(entry, "cidr", path)
+    try:
+        cidr = ipaddress.ip_network(text)
+    except ValueError as error:
+        raise InvalidHosts(f"{path}: {text!r} is not a network.") from error
+    managed = entry.get("managed", True)
+    if not isinstance(managed, bool):
+        raise InvalidHosts(f"{path}: managed must be true or false.")
+    return Network(name=_field(entry, "name", path), cidr=cidr, managed=managed)
 
 
 def _host(raw: object, path: Path) -> Host:
@@ -114,4 +145,5 @@ def load(path: Path) -> Hosts:
 
     hosts = tuple(_host(entry, path) for entry in raw.get("hosts", []))
     names = {address: host.name for host in hosts for address in host.addresses}
-    return Hosts(groups=groups, hosts=hosts, names=names)
+    networks = tuple(_network(entry, path) for entry in raw.get("networks", []))
+    return Hosts(groups=groups, hosts=hosts, names=names, networks=networks)

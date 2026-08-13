@@ -30,6 +30,14 @@ hosts: var
       - name: clove
         addresses: [10.0.0.2, 100.71.4.9]
         groups: [kids]
+    networks:
+      - name: lan
+        cidr: 10.0.0.0/24
+      - name: dhcp pool
+        cidr: 10.0.1.0/24
+        managed: false
+      - name: tailnet
+        cidr: 100.64.0.0/10
     EOF
     echo "Wrote var/hosts.yml."
 

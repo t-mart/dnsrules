@@ -1,0 +1,143 @@
+{% comment %}
+  Target and swap are declared once, with :inherited, and they reach
+  descendants only. Every control below carries a method attribute alone.
+{% endcomment %}
+<div id="log"
+     class="flex flex-col gap-4"
+     hx-target:inherited="#log"
+     hx-swap:inherited="outerHTML">
+
+  {% if error %}
+    <p class="rounded border border-red-600 px-3 py-2 text-sm text-red-700 dark:text-red-300">{{ error }}</p>
+  {% endif %}
+  {% if note %}
+    <p class="rounded border border-green-700 px-3 py-2 text-sm text-green-800 dark:text-green-300">{{ note }}</p>
+  {% endif %}
+
+  {% comment %}
+    hx-get on the form sends every input inside it. On any other element htmx 4
+    would send nothing, because a get no longer collects the enclosing form.
+  {% endcomment %}
+  <form class="grid items-end gap-3 sm:grid-cols-5"
+        hx-get="{% url 'queries' %}"
+        hx-trigger="change, keyup changed delay:300ms">
+    <div>
+      <label for="filter-client">Client</label>
+      <input id="filter-client" name="client" value="{{ terms.client }}" placeholder="10.0.0.2">
+    </div>
+    <div>
+      <label for="filter-qname">Domain</label>
+      <input id="filter-qname" name="qname" value="{{ terms.qname }}" placeholder="contains">
+    </div>
+    <div>
+      <label for="filter-qtype">Type</label>
+      <input id="filter-qtype" name="qtype" value="{{ terms.qtype }}" placeholder="A">
+    </div>
+    <div>
+      <label for="filter-status">Status</label>
+      <select id="filter-status" name="status">
+        {% for value, label in statuses %}
+          <option value="{{ value }}" {% if value == terms.status %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="filter-window">When</label>
+      <select id="filter-window" name="window">
+        {% for value, label in windows %}
+          <option value="{{ value }}" {% if value == terms.window %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+
+  <div id="rule-defaults" class="flex flex-wrap items-end gap-3 text-sm">
+    <div>
+      <label for="rule-duration">A new rule lasts</label>
+      <select id="rule-duration" name="duration">
+        {% for value, label in durations %}
+          <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <p class="text-slate-600 dark:text-slate-400">
+      {{ page.paginator.count }} rows. Page {{ page.number }} of {{ page.paginator.num_pages }}.
+    </p>
+  </div>
+
+  <table class="w-full text-left text-sm">
+    <thead class="border-b border-slate-300 dark:border-slate-700">
+      <tr>
+        <th class="py-1 font-medium">Time</th>
+        <th class="py-1 font-medium">Client</th>
+        <th class="py-1 font-medium">Domain</th>
+        <th class="py-1 font-medium">Type</th>
+        <th class="py-1 font-medium">Answer</th>
+        <th class="py-1 font-medium">Reply</th>
+        <th class="py-1"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row, client in clients %}
+        <tr class="border-b border-slate-200 dark:border-slate-800">
+          <td class="py-1 whitespace-nowrap" title="{{ row.at }}">{{ row.at|date:"H:i:s" }}</td>
+          <td class="py-1">
+            {% if client %}
+              <span title="{{ client.address }}">{{ client.name }}</span>
+              {% if not client.managed %}
+                <span class="rounded bg-amber-200 px-1 text-xs text-amber-900"
+                      title="No group covers this address, so no rule reaches it.">unmanaged</span>
+              {% endif %}
+            {% else %}
+              {{ row.client }}
+            {% endif %}
+          </td>
+          <td class="py-1 font-mono">{{ row.qname }}</td>
+          <td class="py-1">{{ row.qtype }}</td>
+          <td class="py-1">
+            {% if row.blocked %}
+              <span class="font-medium text-red-700 dark:text-red-400">blocked</span>
+            {% elif row.rcode %}
+              {{ row.rcode }}
+            {% else %}
+              <span class="text-slate-500">no answer</span>
+            {% endif %}
+          </td>
+          <td class="py-1 whitespace-nowrap">
+            {% if row.reply_ms %}{{ row.reply_ms|floatformat:1 }} ms{% endif %}
+          </td>
+          <td class="py-1">
+            <form class="flex justify-end gap-2"
+                  hx-post="{% url 'queries.rule' %}?{{ query }}"
+                  hx-include="#rule-defaults">
+              {% csrf_token %}
+              <input type="hidden" name="domain" value="{{ row.qname }}">
+              {% if client and client.groups|length == 1 %}
+                <input type="hidden" name="group" value="{{ client.groups.0 }}">
+              {% else %}
+                <select name="group" class="w-auto">
+                  {% for name in groups %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+                </select>
+              {% endif %}
+              <button class="underline underline-offset-4" name="action" value="block" type="submit">Block</button>
+              <button class="underline underline-offset-4" name="action" value="allow" type="submit">Allow</button>
+            </form>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td class="py-2 text-slate-600 dark:text-slate-400" colspan="7">No queries in this window.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="flex gap-4 text-sm">
+    {% if page.has_previous %}
+      <button class="underline underline-offset-4"
+              hx-get="{% url 'queries' %}?{{ query }}&page={{ page.previous_page_number }}">Newer</button>
+    {% endif %}
+    {% if page.has_next %}
+      <button class="underline underline-offset-4"
+              hx-get="{% url 'queries' %}?{{ query }}&page={{ page.next_page_number }}">Older</button>
+    {% endif %}
+  </div>
+</div>

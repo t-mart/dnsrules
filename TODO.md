@@ -133,8 +133,9 @@ dnstap is on, and a capture is in hand.
       It stays out until the rest works
 - [x] `partitions` command: make the days ahead, drop the days past retention.
       A DEFAULT partition catches a day nobody made, so no row is ever lost
-- [ ] A filter on each column
-- [ ] Block and unblock controls on each row, temporary or permanent
+- [x] A filter on each column: client, name, type, status, and a time window
+- [x] Block and unblock controls on each row, temporary or permanent. A second
+      click replaces the first rule rather than making a second one
 - [ ] Hourly rollups: client, registrable domain, blocked or not, and a count
 - [x] Retention for the raw rows: 30 days, by dropping a partition
 - [ ] Retention for the rollups: 13 months
@@ -157,12 +158,15 @@ dnstap is on, and a capture is in hand.
 
 ## 8. Client names
 
-- [ ] Name each address from `hosts.yml`. A host has several addresses
-- [ ] Read tailnet names from `tailscale status --json` at runtime
-- [ ] Map `127.0.0.1` to `mace`
-- [ ] Mark `10.0.1.0/24` unmanaged. Those hosts get no blocking. In the first
-      capture they made 51 percent of the traffic, from 3 devices
-- [ ] Show the address when no name is known
+- [x] Name each address from `hosts.yml`. A host has several addresses
+- [x] Read tailnet names from `tailscale status --json`, cached for a minute so
+      no page view waits on a subprocess
+- [x] Mark a client unmanaged when no network in `hosts.yml` covers it. Those
+      hosts get no blocking. In the first capture they made 51 percent of the
+      traffic, from 3 devices
+- [x] Show the address when no name is known
+- [ ] `127.0.0.1` needs no rule here. Ansible lists it among mace's own
+      addresses. See the mace list below
 
 ## 9. Packaging and deployment
 
@@ -190,6 +194,8 @@ dnstap is on, and a capture is in hand.
 | Define the groups: tags, membership, and two `rpz` blocks each | section 2 |
 | Create `/etc/unbound/rules/`, and each zone file once | section 2 |
 | Render `/etc/dnsrules/hosts.yml` from `vars/hosts.yml` | sections 2 and 8 |
+| Put the networks in `hosts.yml`: the LAN, the DHCP pool, the tailnet | section 8 |
+| List `127.0.0.1` and `::1` among mace's own addresses | section 8 |
 | Remove `dont_block` and the overrides zone | section 2 |
 | Create the user, and grant the socket and the rules directory | section 9 |
 | Open the port in `vars/nftables.yml` | reaching the site at all |
