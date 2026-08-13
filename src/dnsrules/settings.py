@@ -115,17 +115,13 @@ def env_path(name: str, default: str) -> Path:
     return Path(BASE_DIR, env(name, default))
 
 
-# unbound. These are paths on the router, and they are settings rather than
-# constants because unbound is chrooted to /etc/unbound today. Dropping the
-# chroot moves the zone file, and then one setting changes and nothing else.
-UNBOUND_ZONE_NAME = env("ZONE_NAME", "runtime_rules")
-UNBOUND_ZONE_PATH = env_path("ZONE_PATH", "/etc/unbound/zones/rpz-runtime-rules.zone")
-UNBOUND_ZONE_MODE = int(env("ZONE_MODE", "644"), 8)
+# Ansible renders the inventory at deploy time. It carries the groups, their
+# zone names, and their zone file paths, so no setting names a zone file.
+INVENTORY_PATH = env_path("INVENTORY_PATH", "/etc/dnsrules/inventory.yml")
 
-# Ansible renders this one. Read it, never write it.
-UNBOUND_OVERRIDES_PATH = env_path(
-    "OVERRIDES_PATH", "/etc/unbound/rpz-privacy-blocklist-overrides.zone"
-)
+# The zone files are group dnsrules:unbound. unbound reads them through the
+# group, so they need no world bit.
+UNBOUND_ZONE_MODE = int(env("ZONE_MODE", "640"), 8)
 
 # Empty means render and write the zone file, but skip the reload. No unbound
 # runs on a development machine. Every other failure here must stay loud: a

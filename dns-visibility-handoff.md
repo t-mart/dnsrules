@@ -1,127 +1,98 @@
-# Handoff: DNS log and control plane
+# dnsrules: design and interfaces
 
-This document hands off `dnsrules` to a separate repository: a website that
-shows DNS activity on the home network, and that blocks or unblocks names from
-the same page.
+`dnsrules` is a website on the home network. It shows DNS activity, and it
+blocks or unblocks names from the same page.
 
 `dnsrules` names the project, the system user it runs as, and the group that
 reaches unbound.
 
-The router, `mace`, is configured by the `mace` Ansible repository. This
-document tells you what `mace` provides today, what `mace` must still change,
-what you must not touch, and what is undecided.
+The router is `mace`. The `mace` Ansible repository configures it. This document
+defines what each side owns, what `mace` supplies, and what `dnsrules` must
+never touch.
 
 ## The goal
 
-One website, on the home network, with three parts.
+One website, with three parts.
 
 1. **A log table.** Every resolution: time, which host asked, the name, the
-   type, the answer, and whether a policy blocked it. Filters on each field.
-2. **Controls in that table.** Block or unblock any row, temporarily or
-   permanently.
-3. **A rules page.** Everything `dnsrules` currently blocks or unblocks, marked
-   temporary or permanent, with edits and removals.
+   type, the answer, and whether a policy blocked it. A filter on each column.
+2. **Controls in that table.** Block or unblock any row, temporary or permanent.
+3. **A rules page.** Every rule in each group, with edits and removals.
 
-`dnsrules` owns one RPZ zone file and puts every rule there, temporary and
-permanent alike. Expiry is an application concern, not a DNS concern.
+Expiry is an application concern, not a DNS concern. The RPZ format has nowhere
+to record it.
 
-## Prior art: copy Pi-hole's screens, not its architecture
+## The split between Ansible and dnsrules
 
-Pi-hole solved this display problem years ago. Do not invent new screens. Take
-its layout as the specification and spend the effort on the parts that differ.
+Ansible owns identity and structure. dnsrules owns live policy.
 
-Worth copying:
+| Data | Owner | How to change it |
+| --- | --- | --- |
+| host name and addresses | Ansible | edit `vars/hosts.yml`, then deploy |
+| group names | Ansible | edit Ansible vars, then deploy |
+| group membership | Ansible | edit `vars/hosts.yml`, then deploy |
+| blocklist feed URL per group | Ansible | edit Ansible vars, then deploy |
+| domain allow and deny rules | dnsrules | the website, at once |
+| rule expiry | dnsrules | the website, at once |
 
-- The query log table: time, client, type, domain, status, upstream, and reply
-  time, with a filter on each column.
-- The client breakdown, and top blocked and top allowed names over a window.
-- The allow and deny list page.
-- The global pause. Pi-hole disables blocking for 5 minutes from one button.
-  Here that is `unbound-control rpz_disable privacy_blocklist` plus a timer to
-  re-enable. Cheap, and a good panic button.
+The rates match the tools. Groups change once a year. Membership changes each
+month. Domain rules change each day. A domain rule is the one that must change
+in seconds, because it unblocks a site you need right now.
 
-Do not copy its data model. `mace` already does things Pi-hole cannot, and the
-differences run the other way:
+A membership change needs an Ansible deploy and an unbound reload. Show this in
+the UI. The inconvenience is real and rare.
 
-- Pi-hole is dnsmasq and has no views. `mace` resolves `gothere.dev` per client
-  scope and returns NODATA for the Firefox canary on selected hosts. Any design
-  that puts a filter in front of unbound hides the real client address and
-  breaks all of it.
-- Pi-hole keeps lists, groups, and clients in `gravity.db`, a SQLite file. Here
-  the rules are text files that git can diff, and that is deliberate.
+**dnsrules writes zone files. It never writes unbound configuration.**
 
-The one screen Pi-hole does not have is the one that started this project: a
-per-domain unblock with an expiry. That is the part to design carefully.
+This is the most important rule in this document. A bad zone file makes unbound
+skip one zone, and DNS keeps working. A bad configuration file stops unbound
+from starting, and the whole house loses DNS.
 
 ## Interfaces
 
-Four, and they are enough.
+| Interface | Direction | Purpose | Ready? |
+| --- | --- | --- | --- |
+| dnstap socket | read | every query and answer | **no, see below** |
+| journald, `unbound` unit | read | which policy blocked, and why | yes |
+| `/etc/unbound/rules/<group>.zone` | write | the rules | needs the mace change |
+| `unbound-control` socket | write | reload a zone, read counters | yes |
+| `/etc/dnsrules/inventory.yml` | read | groups, hosts, and names | needs the mace change |
 
-| Interface                                   | Direction | Purpose                        | Ready?            |
-| ------------------------------------------- | --------- | ------------------------------ | ----------------- |
-| dnstap socket                               | read      | every query and answer         | **no, see below** |
-| journald, `unbound` unit                    | read      | which policy blocked, and why  | yes               |
-| `/etc/unbound/zones/rpz-runtime-rules.zone` | write     | the rules                      | yes               |
-| `unbound-control` socket                    | write     | reload the zone, read counters | yes               |
+## 1. The query log needs dnstap, which is off
 
-Plus one optional input: a host map rendered by Ansible, to print names instead
-of addresses.
-
-### 1. The full query log needs dnstap, which is not on yet
-
-This is the blocker. `mace` logs RPZ matches only. A block produces a line; a
-normal resolution produces nothing. The log table you want does not exist yet.
+This blocks the log table. `mace` logs RPZ matches only. A block writes a line.
+A normal resolution writes nothing.
 
 unbound on `mace` is built with `--enable-dnstap`. dnstap emits every client
-query and every client answer as structured binary messages over a socket, or
-over TCP to another host. It covers cache hits, because it taps the client
-interface, not the resolver.
+query and every client answer as structured binary messages. It covers cache
+hits, because it taps the client interface, not the resolver.
 
-Turning it on is a `mace` change, tracked in that repo's `TODO.md`. Sequence it
-with your ingest service: dnstap with no consumer is waste. Do not ask for
-`log-queries` instead. It is unstructured text and it floods journald.
+Use `dnstap-ip` at `127.0.0.1`. dnsrules listens, and unbound connects out. A
+unix socket must sit inside the chroot and stay connectable by the `unbound`
+user. That is solvable work for no gain.
 
-The options to expect are `dnstap-enable`, `dnstap-socket-path` or `dnstap-ip`,
-`dnstap-log-client-query-messages`, and `dnstap-log-client-response-messages`.
-Confirm the exact names against `unbound.conf(5)` on `mace`. The playbook runs
-`unbound-checkconf` before it writes the config, so a wrong name fails the
-deploy instead of the router.
+Keep client query and client response messages. Reply time is the gap between
+the two. The upstream column needs forwarder query messages as well, and those
+carry no client address, so the join back is hard. Treat that column as
+optional.
 
-Those two message types fill every column of the Pi-hole style table except
-two. Reply time comes from the gap between the client query and the client
-response, so keep both. The upstream column needs
-`dnstap-log-forwarder-query-messages` as well, and those messages do not carry
-the client, so the join back is awkward. Treat that column as optional.
+**dnstap writes nothing to disk.** unbound encodes each message and hands it to
+the open connection. There is no spool and no local copy. If no consumer
+listens, unbound retries and drops messages. A slow consumer loses records. It
+never blocks resolution and it never fills the disk. Every retention decision is
+yours.
 
-**dnstap writes nothing to disk.** It is a stream, not a log file. unbound
-encodes each message and hands it to the open socket or TCP connection. There is
-no spool and no local copy, so turning dnstap on adds no storage on `mace` and
-nothing to rotate. If no consumer is listening, unbound retries the connection
-and drops messages in the meantime. A slow or absent consumer loses records; it
-does not block resolution and it does not fill the disk. That is the right
-failure mode for a router, and it means every retention decision is yours.
+Never send this stream off the box in clear text. It is every DNS query in the
+house, and it is a better browsing history than the blocklist stops.
 
-Three design notes:
+A client response carries the whole answer message, so you get the rcode, the RA
+bit, and the records. It does not say which list blocked the query. Join the RPZ
+log for that.
 
-- unbound is chrooted to `/etc/unbound` and drops privileges to the `unbound`
-  user. A unix socket path must be reachable and connectable under those
-  constraints. Test it before you depend on it.
-- Prefer `dnstap-ip` at `127.0.0.1`. `dnsrules` listens, unbound connects out,
-  and the chroot never enters into it. A unix socket has to sit inside
-  `/etc/unbound` and be connectable by the `unbound` user, which is solvable but
-  is work for no gain.
-- Do not send the stream off the box in the clear. It is every DNS query in the
-  house, and it is a better browsing history than anything the blocklist stops.
-  On loopback this is moot, which is another reason to keep it there.
+## 2. The RPZ match log names the policy
 
-A dnstap client response carries the whole answer message, so you get the rcode,
-the RA bit, and the records. That is enough to show a row and mark it blocked.
-It does not say **which** list blocked it. For that, join the RPZ log.
-
-### 2. The RPZ match log says which policy acted
-
-Unbound writes one line per RPZ match to syslog. The lines reach journald under
-the `unbound` unit.
+unbound writes one line for each RPZ match to syslog. The lines reach journald
+under the `unbound` unit.
 
 Example, as `journalctl --output cat` shows it:
 
@@ -131,15 +102,15 @@ Example, as `journalctl --output cat` shows it:
 
 Fields after the `[pid:thread] info:` prefix:
 
-| Field  | Example                 | Meaning                        |
-| ------ | ----------------------- | ------------------------------ |
-| zone   | `runtime_rules`         | which RPZ zone matched         |
-| rule   | `google-analytics.com.` | the entry inside that zone     |
-| action | `rpz-passthru`          | what unbound did               |
-| client | `127.0.0.1@43605`       | client address and source port |
-| qname  | `google-analytics.com.` | the name the client asked for  |
-| qtype  | `A`                     | record type                    |
-| qclass | `IN`                    | record class                   |
+| Field | Example | Meaning |
+| --- | --- | --- |
+| zone | `runtime_rules` | which RPZ zone matched |
+| rule | `google-analytics.com.` | the entry inside that zone |
+| action | `rpz-passthru` | what unbound did |
+| client | `127.0.0.1@43605` | client address and source port |
+| qname | `google-analytics.com.` | the name the client asked for |
+| qtype | `A` | record type |
+| qclass | `IN` | record class |
 
 A tested regular expression:
 
@@ -148,295 +119,302 @@ rpz: applied \[(?<zone>[^\]]+)\] (?<rule>\S+) (?<action>\S+) (?<client>[^@]+)@(?
 ```
 
 Read it with `journalctl --unit unbound --output json --follow`. Backfill with
-`--since` at startup, so a restart does not lose the window.
+`--since` at startup, so a restart loses no window.
+
+The zone field carries the `rpz-log-name` value, so it tells you which group and
+which layer acted.
 
 Cautions:
 
-- The blocklist uses qname triggers only, and unbound omits the trigger word for
-  those. Other trigger types add one token before the rule. Tolerate it.
+- Feeds use qname triggers, and unbound omits the trigger word for those. Other
+  trigger types add one token before the rule. Tolerate it.
 - Join to the dnstap rows on time, client address, and qname. There is no shared
   request id.
-- The blocked answer also clears the RA bit, because `rpz-signal-nxdomain-ra` is
-  on for the blocklist zone. NXDOMAIN with RA cleared means a policy blocked it.
-  Use it as a cheap in-band signal when the join fails.
+- A blocked answer clears the RA bit, because `rpz-signal-nxdomain-ra` is on.
+  NXDOMAIN with RA cleared means a policy blocked the query. Use this as a cheap
+  signal when the join fails.
 
-Measured volume is about 88 RPZ lines an hour, near 2,000 a day. journald
-rotates, so keep history in your own store.
+Measured volume is about 88 lines an hour, near 2,000 a day. journald rotates,
+so keep the history in your own store.
 
-### 3. The zone file is the rule store
+## 3. The zone files
 
-| Order | Zone name                     | File                                                | Owner         |
-| ----- | ----------------------------- | --------------------------------------------------- | ------------- |
-| 1     | `runtime_rules`               | `/etc/unbound/zones/rpz-runtime-rules.zone`         | **`dnsrules`** |
-| 2     | `privacy_blocklist_overrides` | `/etc/unbound/rpz-privacy-blocklist-overrides.zone` | Ansible       |
-| 3     | `privacy_blocklist`           | `/etc/unbound/zones/rpz-privacy-blocklist.zone`     | unbound       |
+Ansible declares two RPZ zones for each group:
 
-Unbound applies RPZ zones in configuration order, and the first match wins. Zone
-1 is yours and it is first, so a rule there beats everything. Ansible creates
-the file once, empty, and never rewrites it. Verified: an Ansible run with
-entries in the file reports `ok`, not `changed`.
+```
+rpz:
+    name: "rules_kids"
+    zonefile: "/etc/unbound/rules/kids.zone"
+    tags: "kids"
+    rpz-log: yes
+    rpz-log-name: "rules_kids"
 
-One line per rule. The right hand side selects the action:
+rpz:
+    name: "feed_kids"
+    url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/rpz/pro.txt"
+    zonefile: "/etc/unbound/zones/feed-kids.zone"
+    tags: "kids"
+    rpz-log: yes
+    rpz-log-name: "feed_kids"
+    rpz-signal-nxdomain-ra: yes
+```
 
-| Line                              | Effect                        |
-| --------------------------------- | ----------------------------- |
-| `example.com CNAME rpz-passthru.` | unblock: skip all later zones |
-| `example.com CNAME .`             | block: answer NXDOMAIN        |
-| `example.com CNAME *.`            | block: answer NODATA          |
-| `example.com A 10.0.0.5`          | answer with your own address  |
+unbound applies RPZ zones in configuration order, and the first match wins. The
+rules zone comes first, so a dnsrules rule always beats the feed. This gives the
+layer system: an allow rule exempts a name from the feed, and a deny rule
+extends the feed.
 
-A leading `*.` on the left matches subdomains only, so list the bare domain too.
-Blocking a name that the feed already blocks is harmless.
+A group needs no feed zone. It then carries manual rules only.
 
-Keep expiry in your own state, not in the zone. The format has nowhere to record
-it. Treat the zone file as rendered output: write state, render, write the file
-atomically, reload. A prune timer every minute is enough.
+Ansible creates each rules zone file once, empty, with `force: false`, and never
+rewrites it. dnsrules owns the contents. unbound owns the feed zone files.
 
-Validate input before you render, and never build a rule by concatenation. A
-malformed line does not always fail loudly. Observed on `mace`: two rules fused
-into one line by a lost newline gave
+Verified against unbound 1.26.0, which `mace` runs:
+
+- `define-tag` adds to the tag list. Several statements accumulate, and a later
+  one never replaces an earlier one.
+- An `rpz` block accepts several tags on one line, as `tags: "kids guests"`. Two
+  groups then share one feed zone, and unbound holds one copy in memory. A
+  second `tags:` line replaces the first, so put every tag on one line.
+- `reload_keep_cache` exists. Use it for a membership change, so the cache
+  survives.
+
+### Rule lines
+
+One line for each rule. The right hand side selects the action:
+
+| Line | Effect |
+| --- | --- |
+| `example.com CNAME rpz-passthru.` | allow: skip every later zone |
+| `example.com CNAME .` | deny: answer NXDOMAIN |
+| `example.com CNAME *.` | deny: answer NODATA |
+| `example.com A 10.0.0.5` | answer with your own address |
+
+A leading `*.` on the left matches subdomains only. List the bare domain too.
+A rule that repeats a feed entry is harmless.
+
+### Never build a line by concatenation
+
+Validate the input before you render. A malformed line does not always fail
+loudly. Observed on `mace`, two rules fused into one line:
 
 ```
 google-analytics.com CNAME rpz-passthru.example.com CNAME .
 ```
 
-`rpz-passthru.example.com` is a legal CNAME target, so unbound loaded the line
-without complaint and applied it as `rpz-local-data`, answering with a CNAME to
-a name that does not exist. The intent was an unblock. The effect was a block of
-another kind, and `auth_zone_reload` still returned `ok`.
+`rpz-passthru.example.com` is a legal CNAME target. unbound loaded the line
+without complaint and answered with a CNAME to a name that does not exist. The
+intent was an allow. The effect was a deny of another kind, and
+`auth_zone_reload` still returned `ok`.
 
-So: emit one line per rule, each ending in a newline. Treat the right hand side
-as a fixed string chosen from the table above, never as user input. Check the
-rendered file before you reload. Reuse the domain pattern in
-`vars/schemas/unbound_blocklist.schema.json`.
+So: emit one line for each rule, and end each line with a newline. Take the
+right hand side from the table above, never from user input. Reuse the domain
+pattern in `vars/schemas/unbound_blocklist.schema.json`.
 
-Read zone 2 as well, read-only, so the rules page shows the whole picture.
-`mace` renders it from `vars/unbound_blocklist.yml`. It is the config-as-code
-path, it is in git, and it survives a rebuild of the router. Your state does
-not, unless you back it up. That is the cost of owning both kinds of rule in one
-file, and it is worth naming out loud.
-
-### 4. Reload with no restart
+## 4. Reload with no restart
 
 ```
-unbound-control auth_zone_reload runtime_rules
+unbound-control auth_zone_reload rules_kids
 ```
 
-This rereads the file into the running server. No restart. No cache flush. No
-Ansible run. The SOA serial does not need a bump.
+This rereads one file into the running server. No restart. No cache flush. No
+Ansible run. The SOA serial needs no bump.
 
 Verified end to end: a blocked name returned NXDOMAIN, one appended line plus a
-reload made it resolve, and removing the line restored the block at once.
+reload made it resolve, and removal restored the block at once.
 
-Note the ordering property this proves: unbound applies RPZ **before** the
-cache. A removed rule takes effect immediately, even though the old answer is
-still cached. Downstream clients still hold their own caches, so a browser can
-lag by its own TTL. Follow a removal with `unbound-control flush <name>` if you
-want to be sure.
+Note the ordering this proves. unbound applies RPZ **before** the cache, so a
+removed rule takes effect at once even though the old answer is still cached.
+Downstream clients hold their own caches, so a browser lags by its own TTL.
+Follow a removal with `unbound-control flush <name>` to be sure.
 
 Other useful commands:
 
 - `unbound-control stats_noreset` reports `num.rpz.action.*` counters, plus
-  rcode and query type breakdowns. `extended-statistics` is on, which those
-  need. Counters that are still zero stay hidden.
-- `unbound-control rpz_disable privacy_blocklist` turns the whole blocklist off
-  for every client. `rpz_enable` reverses it. Good for a panic button.
+  rcode and query type breakdowns. `extended-statistics` is on. Counters that
+  are still zero stay hidden.
+- `unbound-control rpz_disable feed_kids` turns off one zone for its whole
+  group. `rpz_enable` reverses it. This is the panic button.
+- `unbound-control reload_keep_cache` applies a config change without a cache
+  flush. The admin runs this after a membership deploy.
 - `unbound-control status` and `dump_infra` report health and upstream latency.
 
-### 5. Client names
+## 5. The inventory file
 
-The blocklist and your zone apply to a client only if it carries the
-`dns_privacy` tag:
+Ansible renders `/etc/dnsrules/inventory.yml` at deploy time, from
+`vars/hosts.yml`. dnsrules reads it and never writes it.
 
-- LAN hosts with `dns_privacy: true` in `vars/hosts.yml`
-- every tailnet client, all of `100.64.0.0/10`
-- the router itself, `127.0.0.1` and `::1`
+YAML, because the source is YAML and the whole `mace` repository is YAML. There
+is no JSON reader.
 
-An untagged client still appears in dnstap, but never in the RPZ log, because no
-RPZ zone applies to it. `tim-switch` and `laura-work-phone` are the current
-exceptions.
+```yaml
+groups:
+  - name: kids
+    zone: rules_kids
+    zonefile: /etc/unbound/rules/kids.zone
+hosts:
+  - name: clove
+    addresses: [10.0.0.2, 10.0.0.15, 100.71.4.9]
+    groups: [kids]
+```
 
-To turn addresses into names:
+A missing file is an error, not an empty inventory. An empty one renders every
+zone file with no rules in it.
 
-- LAN addresses are in `vars/hosts.yml`. A host can have several interfaces,
-  each with its own address. Ask the `mace` repo to render this as JSON on the
-  router at deploy time. A TODO item covers it. Do not parse the repo from
-  another machine.
+It supplies three things:
+
+1. **Where to write.** Each group carries its zone file path and its zone name,
+   so dnsrules needs no path convention and no extra setting.
+2. **Names for addresses.** The log table shows `clove`, not `10.0.0.2`. Include
+   every address of a host, because a host has several interfaces.
+3. **Which group applies to which host.** For display only.
+
+The `groups` field on a host is a copy for display. The real membership lives in
+the `access-control-tag` lines in `unbound.conf`. dnsrules never reads or writes
+those.
+
+Rules for the edge cases:
+
+- **A group leaves the inventory.** Its rules stay in the database. Mark them
+  stale in the UI. Write no file for that group, because there is no path.
+- **A host leaves the inventory.** No rule is affected, because rules belong to
+  groups. The address shows as unknown in the log.
+- **Dynamic clients.** `systemd-networkd` serves the pool `10.0.1.0/24`. Those
+  hosts are absent from `vars/hosts.yml`, so they carry no tag and get no
+  blocking. Show them as unmanaged. To manage one, add it to `vars/hosts.yml`.
+  Static leases use `10.0.0.0/24`, so the address alone tells you which is which.
+- **Tailnet clients.** One `access-control-tag` covers all of `100.64.0.0/10`
+  and puts it in one group. Read `tailscale status --json` at runtime for names
+  that the inventory lacks.
 - `127.0.0.1` is `mace` itself, through `systemd-resolved`.
-- Tailnet addresses have no complete map in the repo. Use
-  `tailscale status --json` at runtime.
 
 ## Constraints
 
-- **Do not write `/etc/unbound/unbound.conf`.** Ansible owns it. A deploy
-  overwrites it and restarts unbound.
-- **Do not write `/etc/unbound/zones/rpz-privacy-blocklist.zone`.** Unbound owns
-  it and rewrites it about every 12 hours. It holds about 430,000 entries, so do
-  not try to list it in the UI. Test single names against it instead.
-- **Do not write `/etc/unbound/rpz-privacy-blocklist-overrides.zone`.** Ansible
-  renders it. Read it.
-- **The control socket is `/run/unbound/control.sock`, owned by root,
-  mode 0755.** A unix socket needs write permission to connect, and unbound does
-  not chmod or chown it. Only root can drive `unbound-control` today.
-- **`/etc/unbound/zones` is owned by `unbound`, mode 0750.** An atomic write
-  means a temporary file in that same directory, then a rename. That needs write
-  permission on the directory. Root has it.
-- **unbound is chrooted to `/etc/unbound`.** This is why a state file sits under
-  `/etc` instead of `/var/lib`, where it belongs. unbound opens the zone file
-  after it chroots, so a path outside that tree resolves inside it and the zone
-  fails to load. `/var/lib/unbound` exists and the unbound user can write to it,
-  through `StateDirectory=unbound`, but unbound cannot reach it. Only
-  `chroot: ""` changes this, and that gives up a layer of defense on the router.
+- **Never write unbound configuration.** A bad file stops unbound from starting.
+- **Never write `/etc/unbound/unbound.conf`.** Ansible owns it. A deploy
+  overwrites it.
+- **Never write a feed zone file.** unbound owns them and rewrites them about
+  every 12 hours. One holds about 430,000 entries, so do not list it in the UI.
+  Test single names against it instead.
+- **The control socket is `/run/unbound/control.sock`, owned by root, mode
+  0755.** A unix socket needs write permission to connect, and unbound never
+  chmods it. Only root drives `unbound-control` today.
+- **unbound is chrooted to `/etc/unbound`.** This is why the rules directory
+  sits under `/etc` and not `/var/lib`. unbound opens a zone file after it
+  chroots, so a path outside that tree resolves inside it and the zone fails to
+  load. Only `chroot: ""` changes this, and that drops a layer of defence.
 
-  So make the zone file path **configuration in `dnsrules`, not a constant**.
-  If `mace` ever drops the chroot, one setting changes and nothing else.
+  The inventory carries each zone file path for this reason. If `mace` drops the
+  chroot, Ansible changes the paths and dnsrules needs no change.
 
-## Recommended shape
+## Shape
 
-All of `dnsrules` runs on `mace`. One service: it collects dnstap, follows
-journald, owns the zone file, calls `unbound-control`, prunes expired rules, and
-serves the website.
+All of `dnsrules` runs on `mace`. Two systemd units share one codebase: the
+website, and an ingest service for dnstap and the journal. Both run as
+`dnsrules`.
 
-It listens on the LAN address, and you reach it directly by address and port.
-This is LAN first on purpose. It is the tool you want when DNS or the proxy is
-broken, so nothing about it may depend on either. A reverse proxy elsewhere adds
-a name and TLS on top. The tailnet is a secondary path, not the design centre.
+It listens on the LAN address, and you reach it by address and port. This is LAN
+first on purpose. It is the tool you want when DNS or the proxy is broken, so
+nothing about it depends on either. The tailnet is a secondary path.
 
-`mace` must open the port. Add it to `input_allow_rules` in `vars/nftables.yml`,
-the same way port 9100 is open for the node exporter.
-
-`mace` has 439 GB free and 15 GB of RAM. It is a router by job, not by hardware,
-and this workload does not trouble it.
+`mace` must open the port in `input_allow_rules` in `vars/nftables.yml`, the
+same way port 9100 is open for the node exporter.
 
 Do not split the collector from the website across two machines. Every interface
-in this document is local to `mace`: a file, a unix socket, and the journal.
-Moving the website off the box converts all three into a network protocol you
-have to design, secure, deploy, and debug, and it buys nothing that a reverse
-proxy does not already give you.
+here is local to `mace`: a file, a unix socket, and the journal. Moving the
+website off the box turns all three into a network protocol you must design,
+secure, and debug.
 
-The one seam worth keeping is privilege, not machines.
+### Nothing runs as root
 
-### Nothing has to run as root
-
-Only two operations need privilege: write the zone file, and connect to the
-control socket. Both are grantable to a dedicated system user. Root is not
-needed anywhere.
-
-The steps, all of them work for `mace` to do:
+Two operations need privilege: write a zone file, and connect to the control
+socket. Grant both to a dedicated system user.
 
 1. Add a system user and group, `dnsrules`.
-2. Put the zone file in its own directory, `/etc/unbound/rules/`, owned
-   `dnsrules:unbound`, mode 0750. Make the zone file mode 0640. `dnsrules`
-   writes it, and unbound reads it through the group.
+2. Put the rules zone files in `/etc/unbound/rules/`, owned `dnsrules:unbound`,
+   mode 0750. Make each file mode 0640. dnsrules writes them, and unbound reads
+   them through the group.
 3. Add a drop-in for `unbound.service` with an `ExecStartPost` that sets the
    control socket to group `dnsrules`, mode 0770. unbound opens that socket as
-   root before it drops privileges, and it never chmods it, so nothing else
-   fixes this.
-4. Run the service as `dnsrules`, with `SupplementaryGroups=systemd-journal` so
-   it can read the unbound journal. Journal access needs a group, not root.
+   root before it drops privileges, and it never chmods it.
+4. Run the service as `dnsrules`, with `SupplementaryGroups=systemd-journal` for
+   the journal. Journal access needs a group, not root.
 
-One process is the right start. Note what it means: whoever reaches the website
-can write RPZ rules, and a rule can point any name at any address, so this is
-not only a blocking control. If that becomes uncomfortable, split the rule
-writer into its own unit behind a local socket and run the web process as its
-own user. Keep the boundary clean inside the code so that stays a small change.
-Do not build the IPC before you want it.
+One process is the right start. Note the consequence: anyone who reaches the
+website writes RPZ rules, and a rule points any name at any address. This is not
+only a blocking control. If that becomes uncomfortable, split the rule writer
+into its own unit and keep the boundary clean inside the code. Do not build the
+IPC before you want it.
 
 ### Authentication
 
-A session cookie, one admin, sessions in memory. Not basic auth: it has no
-logout, it replays the password on every request, and it gives you a browser
-prompt instead of a page you control.
+A session cookie, one admin, argon2id password hashing, sessions in the database.
 
-- Store one password hash, argon2id, in a file that only `dnsrules` reads. Not
-  in the repository.
-- On login, take 256 bits from the system random source for the session id and
-  hold it in a map with an expiry. A restart ends every session. For one person
-  on one machine that is correct behaviour, not a limitation, but remember that
-  a deploy logs you out.
-- Set the cookie `HttpOnly` and `SameSite=Lax`, with no `Domain`. Do **not**
-  require `Secure`. Plain HTTP on the LAN has to keep working, because this is
-  the tool you reach for when the proxy is down. Set `Secure` per request, only
-  when that request already arrived over HTTPS.
-- Accept the cost knowingly: over plain HTTP the session cookie crosses the LAN
-  in the clear. Keep session lifetimes short and bind the listener to the LAN
-  address.
-- Keep allowed `Host` values and allowed `Origin` values in server settings, as
-  lists, and reject everything else. With `Secure` gone this is the main
-  defence, and it stops DNS rebinding against the panel.
-- `SameSite=Lax` already stops the cookie on cross site POST, which covers form
-  CSRF. Check `Origin` on state changing requests as well.
-- Count failed logins in the same map and slow them down.
+- Never force the `Secure` flag. Plain HTTP on the LAN must keep working,
+  because this is the tool you reach for when the proxy is down. Django sets
+  `Secure` for each request that already arrived over HTTPS.
+- Accept the cost: over plain HTTP the session cookie crosses the LAN in clear
+  text. Keep sessions short and bind the listener to the LAN address.
+- Keep allowed `Host` and `Origin` values as settings, as lists, and reject
+  everything else. With `Secure` gone, this is the main defence, and it stops
+  DNS rebinding against the panel.
+- `SameSite=Lax` stops the cookie on a cross site POST, which covers form CSRF.
 
-### Stack
+### The database
 
-Python, with Django for the web half.
+Postgres holds the rules and the query log. It suits this workload: heavy
+append, analytical reads, and time based deletes. `GenericIPAddressField` maps
+to `inet`, and `date_trunc` plus `INSERT ... ON CONFLICT` keep the rollups
+short. Batch the inserts on a one second tick.
 
-This project is roughly one fifth website and four fifths daemon, so weigh the
-daemon first. It has to decode a framestreams and protobuf byte stream, follow
-the journal, run `unbound-control`, write a file atomically, and keep a timer.
-Python does all of that, and existing dnstap receiver libraries are worth a look
-before writing the framing by hand.
+The database runs on `bayleaf`, not on `mace`. The link is Tailscale, so
+WireGuard encrypts and authenticates it. That server offers no SSL, so
+`sslmode=require` fails there and `sslmode=prefer` falls back to clear text
+after a wasted round trip. Use `sslmode=disable`.
 
-Django then supplies the boring half at no cost: session auth, the allowed
-`Host` and `Origin` lists as settings, an ORM with migrations, and templates.
-Those are the settings described above, already built.
+DNS never depends on the database. unbound reads the zone files, and those files
+stay on disk. Three invariants keep that true:
 
-Shape it as two systemd units over one codebase. `manage.py` runs the web
-server; a second unit runs an ingest command that shares the models. Both run as
-`dnsrules`.
+- **Never render a zone file from an unreachable or empty database.** Reconcile
+  only after a successful read. A render at boot with no connection writes an
+  empty zone and drops every rule.
+- **Take `pg_advisory_xact_lock` around render, write, and reload.** Two workers
+  that render at once interleave their writes.
+- **Write each file atomically**, as a temporary file and then a rename.
 
-Use the existing Postgres server for the query log. It suits this workload
-better than SQLite: heavy append, analytical reads, and time based deletes.
-Django treats Postgres as its first class backend, `GenericIPAddressField` maps
-to `inet`, and `date_trunc` plus `INSERT ... ON CONFLICT` make the rollups
-short. Batch the inserts on a one second tick rather than one statement per
-message.
+A database outage costs rule changes and expiries, so a temporary allow outlives
+its window. Both recover. Neither affects resolution.
 
-Keep rule state in Postgres too, not in a second file. Two tabs, the web
-workers, and the prune timer all write rules, and a file makes that a
-read-modify-write race that you have to solve with locking. A transaction solves
-it for free, and the rules page can then join against the log to show how often
-each rule fires.
+### The backup problem
 
-DNS does not depend on the database, whatever happens here. unbound reads the
-zone file, and that file persists on disk. Postgres holding the rules means the
-zone file is rendered output, exactly as before.
+The blocklist URL and the group structure live in git and survive a router
+rebuild. The domain rules do not. A rebuild plus a lost database loses your
+whole rule set.
 
-Three invariants make that safe:
+So write an export command from the start. `dnsrules export` prints every rule
+as YAML, or as JSON with `--format json`. Commit that file. It serves as a
+backup and as a record.
 
-- **Never render the zone file from an unreachable or empty database.** On
-  startup, reconcile only after a successful read. A naive render at boot with
-  no connection writes an empty zone and silently drops every rule.
-- **Take `pg_advisory_lock` around render, write, and reload.** Two workers
-  rendering at once interleave their writes. This is the one lock you need, and
-  it lives in the store you already have.
-- **Write the file atomically**, temporary file then rename, then reload.
+## Screens: copy Pi-hole, not its data model
 
-What a database outage costs: no rule changes from the UI, and expiries stop
-firing, so a temporary unblock outlives its window. Both are recoverable, and
-the escape hatch is the manual recipe at the end of this document. Neither
-affects resolution.
+Pi-hole solved this display problem years ago. Take its layout as the
+specification.
 
-For the table, use server rendered templates with htmx. The UI is filters and a
-table. It does not pay for a build step.
+Worth copying: the query log table with a filter on each column, the client
+breakdown, the top blocked and top allowed lists, and the global pause button.
 
-Rejected, with reasons:
+Do not copy its data model. Pi-hole is dnsmasq and has no views. `mace` resolves
+`gothere.dev` per client scope and returns NODATA for the Firefox canary on
+selected hosts. Any design that puts a filter in front of unbound hides the real
+client address and breaks all of it.
 
-- **Full stack JavaScript.** The instinct is right. There is no dnstap library
-  worth trusting, so the framing and protobuf become yours, and journal access
-  means spawning `journalctl` and parsing it. The gain would be a richer UI,
-  which is not what this needs.
-- **Go** is the strongest technical fit and the honourable alternative: the
-  reference dnstap implementation is Go, it is one static binary, and stream
-  plus HTTP in one process is natural. It costs sessions, migrations, and
-  templates, all written by hand. Choose it if the Python dnstap side turns
-  painful, or if one binary matters more than fewer lines.
+The one screen Pi-hole lacks is the one that started this project: a per-domain
+allow with an expiry. Design that part with care.
 
 ## Retention
 
-Retention is entirely your policy. Nothing upstream keeps anything for you.
-journald rotates the RPZ lines, and dnstap keeps nothing at all.
+Nothing upstream keeps anything for you. journald rotates the RPZ lines, and
+dnstap keeps nothing.
 
 Measure before you size anything. Sample the counter one minute apart:
 
@@ -446,66 +424,50 @@ sudo unbound-control stats_noreset | find total.num.queries
 
 Two stores with different lifetimes:
 
-- **Raw rows**, one per query. This is what the log table filters over. Keep 30
+- **Raw rows**, one for each query. The log table filters over these. Keep 30
   days. Partition the table by day, and drop the old partition instead of
-  deleting rows. A `DROP` is instant and leaves nothing to vacuum, which is the
-  main reason this is easier on Postgres than on SQLite. Index the timestamp
-  with BRIN: the data arrives in time order, so the index stays tiny.
+  deleting rows. A `DROP` is instant and leaves nothing to vacuum. Index the
+  timestamp with BRIN, because the data arrives in time order.
 - **Hourly rollups**: client, registrable domain, blocked or not, and a count.
-  This is what the graphs and the top-blocked lists read. Keep 13 months, so
-  year over year comparison works.
+  The graphs read these. Keep 13 months, for a year over year comparison.
 
-Roll up first, then delete the raw rows, nightly. For reference, Pi-hole keeps
-its long term database one year by default, and that database is the thing that
-grows.
+Roll up first, then delete the raw rows, each night. Add a size cap as a
+backstop, and drop oldest first when it trips. One bad device makes millions of
+rows fast.
 
-Add a size cap as a backstop, and drop oldest first when it trips. One
-misbehaving device turns into millions of rows fast.
+Expect to lose rows while `bayleaf` is down. The ingest has nowhere to buffer,
+and dnstap drops rather than blocks unbound. That is the right way to fail.
 
-If the Postgres server is on another machine, two things follow.
+## What mace must do
 
-Put TLS on the connection. This table is every DNS query in the house, and
-sending it in clear text across the LAN undoes the point of the blocklist. Use
-`sslmode=verify-full`. Plain `require` encrypts but verifies nothing, so it
-stops a sniffer and not an impostor.
+Tracked in that repository under "Work that returns here".
 
-Give the database host a name in `vars/dns_hosts.yml`, so it resolves to its LAN
-address for LAN clients through the existing split horizon. Then a public Let's
-Encrypt certificate for that name verifies against the system CA bundle, with no
-private CA to distribute.
-
-Expect to lose log rows while that machine is down. The ingest has nowhere to
-buffer them, and dnstap drops rather than blocking unbound. That is the right
-direction to fail.
-
-## Open questions
-
-- **Which port, and whether the tailnet reaches it too.** LAN first is decided.
-  Both need a rule in `vars/nftables.yml`.
-- **Who deploys the service to `mace`.** Either the `mace` playbook grows tasks
-  for it, or this project deploys itself. Ansible owns everything in
-  `/etc/unbound` today.
-
-## What mace must still do
-
-Tracked in that repo's `TODO.md`, under "Work that returns here".
-
-1. Turn on dnstap. Blocks the log table.
-2. Render a client address to name map as JSON on the router.
-3. Grant the service access to the control socket and the zone directory, if it
-   does not run as root.
+1. **Turn on dnstap**, over `dnstap-ip` at `127.0.0.1`. Blocks the log table.
+2. **Define the groups.** `define-tag` for each group name, an
+   `access-control-tag` for each host address, and two `rpz` blocks for each
+   group. Put the rules zone first.
+3. **Create `/etc/unbound/rules/`**, owned `dnsrules:unbound`, mode 0750. Create
+   each rules zone file once, empty, with `force: false`.
+4. **Render `/etc/dnsrules/inventory.yml`** from `vars/hosts.yml` at deploy
+   time.
+5. **Remove `dont_block` from `vars/unbound_blocklist.yml`**, and remove the
+   `privacy_blocklist_overrides` zone. Those entries move into dnsrules as allow
+   rules.
+6. **Add the `dnsrules` user**, and add the `unbound.service` drop-in for the
+   control socket.
+7. **Open the website port** in `vars/nftables.yml`.
 
 ## Verification recipe
 
-Run on `mace`, as root. This exercises the control path by hand. It is the test
-`dnsrules` must reproduce.
+Run on `mace`, as root. This is the control path by hand. `dnsrules` must
+reproduce it.
 
 ```nu
 q google-analytics.com A @127.0.0.1 --format=json | from json | get 0.replies.0.rcode
-echo "google-analytics.com CNAME rpz-passthru." | sudo tee --append /etc/unbound/zones/rpz-runtime-rules.zone
-sudo unbound-control auth_zone_reload runtime_rules
+echo "google-analytics.com CNAME rpz-passthru." | sudo tee --append /etc/unbound/rules/kids.zone
+sudo unbound-control auth_zone_reload rules_kids
 q google-analytics.com A @127.0.0.1 --format=json | from json | get 0.replies.0.rcode
-journalctl --unit unbound --since "-1 min" --output cat | find runtime_rules
+journalctl --unit unbound --since "-1 min" --output cat | find rules_kids
 ```
 
 Expect rcode 3, then rcode 0, and one `rpz-passthru` log line. To undo, delete

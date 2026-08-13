@@ -17,3 +17,5 @@ wheels/
 
 # Local stand-in for the router's /etc/unbound
 var/
+
+unbound-checkout/

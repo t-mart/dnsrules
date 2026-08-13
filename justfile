@@ -6,9 +6,32 @@ default: check
 dev: var
     uv run dnsrules tailwind runserver
 
+# run a management command with the development environment loaded
+manage *ARGS:
+    uv run dnsrules {{ ARGS }}
+
 # stand in for the router's /etc/unbound, which no development machine has
 var:
     mkdir --parents var
+
+# write a stand-in for the inventory that Ansible renders on the router
+inventory: var
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cat > var/inventory.yml <<EOF
+    groups:
+      - name: home
+        zone: rules_home
+        zonefile: $PWD/var/home.zone
+      - name: kids
+        zone: rules_kids
+        zonefile: $PWD/var/kids.zone
+    hosts:
+      - name: clove
+        addresses: [10.0.0.2, 100.71.4.9]
+        groups: [kids]
+    EOF
+    echo "Wrote var/inventory.yml."
 
 # compile the stylesheet
 # --force is required: the up-to-date check reads the source css only, so a

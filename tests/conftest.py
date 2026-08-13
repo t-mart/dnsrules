@@ -1,4 +1,5 @@
 import pytest
+import yaml
 
 # Copied from the "Create the runtime rules zone if absent" task in mace's
 # playbook.yml. That task runs once, with force: false, so this is the header
@@ -16,6 +17,8 @@ $TTL 3600
 ; <domain> CNAME .               ; block, answer NXDOMAIN
 """
 
+GROUPS = ("kids", "adults")
+
 
 @pytest.fixture
 def ansible_zone():
@@ -30,9 +33,46 @@ def zone_path(tmp_path):
 
 
 @pytest.fixture
-def zone_settings(settings, zone_path):
-    """Point dnsrules at a throwaway zone file, with no unbound to reload."""
-    settings.UNBOUND_ZONE_PATH = zone_path
+def zone_files(tmp_path):
+    """One zone file for each group, as Ansible creates them: header only."""
+    files = {}
+    for name in GROUPS:
+        files[name] = tmp_path / f"{name}.zone"
+        files[name].write_text(ANSIBLE_ZONE)
+    return files
+
+
+@pytest.fixture
+def inventory_path(tmp_path, zone_files):
+    path = tmp_path / "inventory.yml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "groups": [
+                    {
+                        "name": name,
+                        "zone": f"rules_{name}",
+                        "zonefile": str(zone_files[name]),
+                    }
+                    for name in GROUPS
+                ],
+                "hosts": [
+                    {
+                        "name": "clove",
+                        "addresses": ["10.0.0.2", "100.71.4.9"],
+                        "groups": ["kids"],
+                    }
+                ],
+            }
+        )
+    )
+    return path
+
+
+@pytest.fixture
+def zone_settings(settings, inventory_path):
+    """Point dnsrules at a throwaway inventory, with no unbound to reload."""
+    settings.INVENTORY_PATH = inventory_path
     settings.UNBOUND_ZONE_MODE = 0o644
     settings.UNBOUND_CONTROL_SOCKET = ""
     return settings

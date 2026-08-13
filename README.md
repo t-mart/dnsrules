@@ -18,13 +18,18 @@ interfaces it uses on the router.
 
 ```
 cp .env.example .env
+just inventory
+just manage migrate
+just manage createsuperuser
 just dev
-just check
 ```
+
+Then open `http://127.0.0.1:8000/rules/` and sign in.
 
 Every command is a Django management command. `manage.py` is a development
 shim. Deployments call the `dnsrules` console script, which is the same entry
-point.
+point. Run `just manage <command>` in development, because the justfile loads
+`.env` and a bare shell does not.
 
 ## Frontend
 
@@ -66,12 +71,18 @@ stylesheet on every change.
 
 ## htmx 4
 
-Two rules that htmx 1 and 2 documentation gets wrong:
+Four rules that htmx 1 and 2 documentation gets wrong. Read
+[the htmx 4 docs](https://four.htmx.org/llms-full.txt), never an older guide.
 
-- Attribute inheritance is explicit. The CSRF header needs
-  `hx-headers:inherited`, not `hx-headers`.
+- Attribute inheritance is explicit, and it reaches descendants only. The CSRF
+  header needs `hx-headers:inherited`, not `hx-headers`. The rules panel
+  declares `hx-target:inherited` and `hx-swap:inherited` once on its root.
+- The default swap is `innerHTML`. Every control that replaces the panel states
+  `outerHTML`, otherwise the panel nests inside itself.
 - htmx swaps every response except 204 and 304. `base.html` adds `5xx` to
-  `noSwap`, so a server fault does not replace the page.
+  `noSwap`, so a server fault does not replace the page. A 4xx still swaps, so
+  an invalid form answers 422 with its own errors.
+- `hx-confirm` is no longer part of the core.
 
 ## Configuration
 
@@ -104,38 +115,74 @@ from disk.
 `src/dnsrules/unbound/` holds every part that touches the router. It imports no
 Django, so it tests without a database.
 
-A rule change runs in this order: save the row, render every rule to zone text,
-write the file atomically, then reload the zone through the control socket.
+A rule change runs in this order: save the row, render each group's rules to
+zone text, write each file atomically, then reload each zone through the control
+socket.
+
+**dnsrules writes zone files. It never writes unbound configuration.** A bad
+zone file makes unbound skip one zone. A bad configuration file stops unbound
+from starting, and the whole house loses DNS.
 
 | Setting | Purpose |
 | --- | --- |
-| `DNSRULES_ZONE_PATH` | the zone file dnsrules owns and rewrites |
-| `DNSRULES_ZONE_NAME` | the zone to reload |
-| `DNSRULES_OVERRIDES_PATH` | Ansible's exemption zone, read only |
+| `DNSRULES_INVENTORY_PATH` | the file Ansible renders, read only |
+| `DNSRULES_ZONE_MODE` | mode for each zone file dnsrules writes |
 | `DNSRULES_CONTROL_SOCKET` | unbound's control socket |
 
-These are settings, not constants, because unbound is chrooted to
-`/etc/unbound`. If mace drops the chroot, the zone file moves and one setting
-changes.
-
 A development machine has no unbound. Leave `DNSRULES_CONTROL_SOCKET` empty to
-write the zone file and skip the reload. Every other reload fault stays an
+write the zone files and skip the reload. Every other reload fault stays an
 error. A silent reload failure is the worst outcome here, because the website
 reports success while unbound still serves the previous rules.
 
-dnsrules reads the SOA header back out of the zone file rather than keeping its
+dnsrules reads the SOA header back out of each zone file rather than keeping its
 own copy. Ansible writes that header once, with `force: false`, and never
 touches the file again.
 
-Two commands drive the zone file:
+## The inventory
+
+Ansible owns host names, addresses, group names, and membership. It renders
+`/etc/dnsrules/inventory.yml` at deploy time from `vars/hosts.yml`. dnsrules
+reads that file and never writes it.
+
+```yaml
+groups:
+  - name: kids
+    zone: rules_kids
+    zonefile: /etc/unbound/rules/kids.zone
+hosts:
+  - name: clove
+    addresses: [10.0.0.2, 100.71.4.9]
+    groups: [kids]
+```
+
+Each group carries its own zone name and zone file path, so no setting names a
+zone file. unbound is chrooted to `/etc/unbound`, which is why the rules live
+under `/etc`. If mace drops the chroot, Ansible changes the paths and dnsrules
+needs no change.
+
+A missing inventory is an error, not an empty inventory. An empty one would
+render every zone file with no rules in it.
+
+A group that leaves the inventory keeps its rules and its row. Nothing renders
+for it, because nothing says where to write. The rules page marks it stale.
+Membership changes need an Ansible deploy and then
+`unbound-control reload_keep_cache`.
+
+Run `just inventory` to write a stand-in into `var/` for development.
+
+Three commands drive the zone files:
 
 ```
 uv run dnsrules reconcile
 uv run dnsrules prune
+uv run dnsrules export | save --force rules.yml
 ```
 
 `reconcile` renders every active rule and reloads. `prune` deletes expired
-rules first, and does nothing more when none expired.
+rules first, and does nothing more when none expired. `export` prints every
+rule as YAML, or as JSON with `--format json`. The group structure lives in the
+mace repository and survives a rebuild. The rules live only in Postgres, so
+commit that export as the backup.
 
 ## Deployment
 

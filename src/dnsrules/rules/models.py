@@ -13,6 +13,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
+from dnsrules.inventory import NAME_MAX_LENGTH
 from dnsrules.unbound.domain import MAX_LENGTH, InvalidDomain, normalize
 from dnsrules.unbound.zone import Action
 
@@ -28,6 +29,27 @@ class Source(models.TextChoices):
     QUERY_LOG = "query_log", "Added from the query log"
 
 
+class Group(models.Model):
+    """A group from the inventory.
+
+    Ansible owns the name, the membership, and the zone file path. This row
+    exists so a rule can point at a group, and it holds nothing else. A group
+    that leaves the inventory keeps its rules and its row. Nothing renders for
+    it, because the inventory no longer says where to write.
+    """
+
+    name = models.CharField(max_length=NAME_MAX_LENGTH, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class RuleQuerySet(models.QuerySet):
     def active(self, now: timezone.datetime | None = None) -> RuleQuerySet:
         now = now or timezone.now()
@@ -39,7 +61,8 @@ class RuleQuerySet(models.QuerySet):
 
 
 class Rule(models.Model):
-    domain = models.CharField(max_length=MAX_LENGTH, unique=True)
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="rules")
+    domain = models.CharField(max_length=MAX_LENGTH)
     action = models.CharField(
         max_length=16, choices=ACTION_CHOICES, default=Action.BLOCK.value
     )
@@ -56,8 +79,15 @@ class Rule(models.Model):
     objects = RuleQuerySet.as_manager()
 
     class Meta:
-        ordering = ["domain"]
+        ordering = ["group__name", "domain"]
         indexes = [models.Index(fields=["expires_at"])]
+        constraints = [
+            # Each group renders its own zone file, so one domain holds one
+            # rule per group and no more.
+            models.UniqueConstraint(
+                fields=["group", "domain"], name="one_rule_per_domain_per_group"
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.domain} {self.action}"

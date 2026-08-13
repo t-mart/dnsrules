@@ -1,11 +1,10 @@
 # TODO
 
-Build order for `dnsrules`. See [the handoff](dns-visibility-handoff.md) for the
-interfaces, the constraints, and the reasoning behind each choice.
+Build order for `dnsrules`. See [the design](dns-visibility-handoff.md) for the
+interfaces, the constraints, and the reasoning.
 
-Order matters here. dnstap is not on yet, and it blocks only the query log. The
-rules half needs nothing new from the router, so build it first and ship a
-useful tool before the log exists.
+Order matters. dnstap is off, and it blocks only the query log. The rules half
+needs one `mace` change and nothing else, so build it first.
 
 ## 0. Skeleton
 
@@ -17,14 +16,12 @@ useful tool before the log exists.
 - [x] WhiteNoise serving from the finders, no collectstatic step
 - [x] `just check` pipeline and smoke tests
 
-## 1. Rules
+## 1. The unbound module
 
-The write path. It needs Postgres and the router, not dnstap.
+Pure code. No Django imports, and no database.
 
-- [x] Reach Postgres and record the setup in the README. It is on `bayleaf`,
-      not local, and the test role needs `CREATEDB`
-- [x] Validate the domain against the pattern in
-      `vars/schemas/unbound_blocklist.schema.json` from the `mace` repo
+- [x] `unbound/domain.py`: validate against the pattern in
+      `vars/schemas/unbound_blocklist.schema.json`
 - [x] `unbound/zone.py`: render rules to zone text, then write atomically
 - [x] Read the SOA header back out of the zone file, so it cannot drift from
       the one Ansible writes
@@ -33,28 +30,48 @@ The write path. It needs Postgres and the router, not dnstap.
 - [x] Test the fused-line case: two rules joined by a lost newline load without
       complaint and invert the intent
 - [x] `unbound/control.py`: talk to the control socket, run `auth_zone_reload`
-- [x] Make the zone file path a setting, not a constant. unbound is chrooted
-      today and that may change
+
+## 2. Rules and groups
+
+The write path. It needs Postgres and the `mace` group change.
+
+- [x] Reach Postgres and record the setup in the README. It is on `bayleaf`,
+      not local, and the test role needs `CREATEDB`
 - [x] `Rule` model: domain, action, source, expiry, note, timestamps
-- [x] `rules/services.py`: reconcile under `pg_advisory_lock`, then render,
+- [x] `rules/services.py`: reconcile under `pg_advisory_xact_lock`, then render,
       write, and reload
 - [x] Refuse to render when the database read fails. An empty render silently
       drops every rule
 - [x] `prune` and `reconcile` management commands
-- [ ] Run `prune` from a timer every minute
-- [ ] Rules page: list, add, edit, remove, with htmx
-- [ ] Read `privacy_blocklist_overrides` read-only, so the page shows the whole
-      picture
+- [x] `inventory.py`: read `/etc/dnsrules/inventory.yml`. Never write it
+- [x] Treat a missing inventory as an error. An empty one renders every zone
+      file with no rules in it
+- [x] `Group` model, keyed by the name in the inventory
+- [x] Add a group to `Rule`. A rule belongs to exactly one group, and a domain
+      holds one rule in each group
+- [x] Reconcile every group: one file and one `auth_zone_reload` for each
+- [x] Replace the zone path and zone name settings. Both now come from the
+      inventory, per group
+- [x] Read staleness from the inventory. A stored flag drifts on the next deploy
+- [x] `export` management command: print every rule as YAML, or as JSON
+      with `--format json`
+- [x] Rules page: list by group, add, edit, remove, with htmx
+- [x] Answer 422 for an invalid form, so htmx swaps the errors back in
+- [x] Keep a failed reload off the error page. The rule is saved already, so
+      the page says so and the next reconcile converges
+- [x] Show a stale group, and say that its rules reach no zone file
+- [x] Show that a membership change needs an Ansible deploy plus
+      `unbound-control reload_keep_cache`
+- [ ] Run `prune` from a timer every minute. See section 9
 
-## Fixtures: capture, never invent
+## 3. Fixtures: capture, never invent
 
-Three interfaces carry a wire format this project does not control: the RPZ log
-lines, the dnstap stream, and the control socket. A generator written here
-tests the decoder against its own assumptions, so a shared misreading of the
-format passes every test and fails on the router.
+The RPZ log lines and the dnstap stream carry a format this project does not
+control. A generator written here tests the decoder against its own
+assumptions, so one shared misreading passes every test and fails on the router.
 
-So capture real bytes from `mace` once, commit them, and replay them. Synthesize
-only to build a case that capture cannot reach, such as a truncated frame.
+Capture real bytes from `mace` once, commit them, and replay them. Synthesize
+only for a case that capture cannot reach, such as a truncated frame.
 
 - [ ] Capture `journalctl --unit unbound --output json` lines that cover each
       RPZ action, and commit them
@@ -64,23 +81,23 @@ only to build a case that capture cannot reach, such as a truncated frame.
 The control socket is the exception. Its protocol is one line of text, so the
 tests already run a real unix socket and assert the bytes on the wire.
 
-## 2. RPZ match log
+## 4. RPZ match log
 
 journald carries these today, so this needs nothing from `mace`.
 
 - [ ] `unbound/journal.py`: follow `journalctl --unit unbound --output json`
-- [ ] Parse with the tested regular expression in the handoff
+- [ ] Parse with the tested regular expression in the design document
 - [ ] Backfill with `--since` at startup, so a restart loses no window
 - [ ] Tolerate the extra token that non-qname triggers add
+- [ ] Map the zone field to a group and a layer, through `rpz-log-name`
 - [ ] Model and store the matches
 
-## 3. Query log ingest
+## 5. Query log ingest
 
 Blocked. `mace` must turn dnstap on first.
 
-- [ ] Wait for dnstap on `mace`, over `dnstap-ip` at `127.0.0.1`
 - [ ] `unbound/dnstap.py`: decode framestreams and protobuf. Look for an
-      existing receiver library before writing the framing by hand
+      existing receiver library before you write the framing by hand
 - [ ] Keep client query and client response messages. Reply time is the gap
       between them
 - [ ] `ingest` management command, batching inserts on a one second tick
@@ -88,7 +105,7 @@ Blocked. `mace` must turn dnstap on first.
 - [ ] Fall back to the in-band signal when the join fails: NXDOMAIN with the RA
       bit cleared means a policy blocked it
 
-## 4. Query log table
+## 6. Query log table
 
 - [ ] Partition the raw table by day. Index the timestamp with BRIN
 - [ ] Columns: time, client, type, domain, status, upstream, reply time
@@ -98,52 +115,54 @@ Blocked. `mace` must turn dnstap on first.
 - [ ] Retention: 30 days raw, 13 months of rollups
 - [ ] Nightly job: roll up first, then drop the old partition
 - [ ] Size cap as a backstop, oldest first when it trips
-- [ ] Measure the query rate before sizing anything
+- [ ] Measure the query rate before you size anything
 
-## 5. Dashboard
+## 7. Dashboard
 
 - [ ] Top blocked and top allowed over a window, as CSS bars
 - [ ] Client breakdown, as CSS bars
-- [ ] Global pause: `rpz_disable privacy_blocklist` plus a timer to re-enable
+- [ ] Pause a group: `rpz_disable feed_<group>` plus a timer to re-enable
 - [ ] Queries over time. Choose a chart library at this point, not before.
       uPlot if it stays a time series, Observable Plot if the dashboard grows
       more chart types
 - [ ] Keep chart elements outside the htmx swap target, and use `htmx.onLoad()`
       for anything inserted later
 
-## 6. Client names
+## 8. Client names
 
-- [ ] Wait for `mace` to render the host map as JSON on the router
+- [ ] Name each address from the inventory. A host has several addresses
 - [ ] Read tailnet names from `tailscale status --json` at runtime
 - [ ] Map `127.0.0.1` to `mace`
+- [ ] Mark `10.0.1.0/24` unmanaged. Those hosts get no blocking
 - [ ] Show the address when no name is known
 
-## 7. Packaging and deployment
+## 9. Packaging and deployment
 
 - [ ] `serve` management command wrapping gunicorn through its Python API
 - [ ] `systemd` management command that prints, and never installs:
   - [ ] `dnsrules-migrate.service`, oneshot, with `RemainAfterExit=yes`
   - [ ] `dnsrules-web.service` and `dnsrules-ingest.service`
+  - [ ] `dnsrules-prune.service` and `.timer`, every minute. Django ships no
+        scheduler, and a timer needs no dependency and no extra process
   - [ ] `sysusers.d` entry for the `dnsrules` user, including `m dnsrules unbound`
-  - [ ] `tmpfiles.d` entry for `/etc/dnsrules` and the zone directory
+  - [ ] `tmpfiles.d` entry for `/etc/dnsrules`
   - [ ] `unbound.service` drop-in that chmods the control socket
 - [ ] Generate a `SECRET_KEY` into `/etc/dnsrules/dnsrules.env` at install time.
       More than one web worker needs it
 - [ ] Version from git tags, so `uv tool install` from a branch reports
       something real
 - [ ] Write the install and upgrade procedure in the README
-- [ ] Back up the rule state. The router survives a rebuild through Ansible.
-      Your Postgres rows do not
 
 ## Waiting on the mace repo
 
-Tracked there under "Work that returns here".
-
 | Item | Blocks |
 | --- | --- |
-| Turn on dnstap | section 3 and everything after it |
-| Render the client address to name map as JSON | section 6 |
-| Create the user, and grant the socket and zone directory | section 7 |
+| Define the groups: tags, membership, and two `rpz` blocks each | section 2 |
+| Create `/etc/unbound/rules/`, and each zone file once | section 2 |
+| Render `/etc/dnsrules/inventory.yml` from `vars/hosts.yml` | sections 2 and 8 |
+| Remove `dont_block` and the overrides zone | section 2 |
+| Turn on dnstap | section 5 and everything after it |
+| Create the user, and grant the socket and the rules directory | section 9 |
 | Open the port in `vars/nftables.yml` | reaching the site at all |
 
 ## Open questions
@@ -153,3 +172,5 @@ Tracked there under "Work that returns here".
       `uv tool install` need a deploy key on the router
 - [ ] Whether the Django admin stays. It is useful for poking at rows, and it is
       a second way into the same power
+- [ ] Whether a group needs more than two layers. Two suffice today: the
+      dnsrules rules zone, then one feed

@@ -13,6 +13,7 @@ dependencies = [
     "django-htmx>=1.29.0",
     "gunicorn>=26.0.0",
     "psycopg[binary]>=3.3.4",
+    "pyyaml>=6.0.3",
     "whitenoise>=6.12.0",
 ]
 
@@ -41,9 +42,9 @@ select = ["B", "DJ", "E", "F", "I", "RUF", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "*/migrations/*" = ["E501", "RUF012"]
-# Django reads Meta.ordering and Meta.indexes as declarations, not as shared
-# mutable state.
+# Django reads a Meta class as a declaration, not as shared mutable state.
 "*/models.py" = ["RUF012"]
+"*/forms.py" = ["RUF012"]
 
 # ty does not model Django's field descriptors, so it reads `self.domain` as a
 # CharField rather than a str, and it cannot follow `QuerySet.as_manager`.
@@ -54,6 +55,7 @@ include = ["src/dnsrules/**/models.py"]
 [tool.ty.overrides.rules]
 invalid-assignment = "ignore"
 invalid-argument-type = "ignore"
+invalid-return-type = "ignore"
 missing-argument = "ignore"
 
 [tool.pytest.ini_options]

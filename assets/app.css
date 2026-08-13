@@ -18,7 +18,8 @@
     font-weight: 500;
   }
 
-  input {
+  input,
+  select {
     border: 1px solid;
     border-color: var(--color-slate-400);
     border-radius: var(--radius-sm);
