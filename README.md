@@ -199,6 +199,38 @@ a type checker sees nothing without it.
 that writes it. They version together: protoc 35.1 emits code that demands the
 7.35.1 Python runtime or newer.
 
+## The query log
+
+`dnsrules ingest` listens for the dnstap stream and writes one row for each
+question a client asked. unbound is the client on that socket: it connects out
+to `DNSRULES_DNSTAP_HOST` and `DNSRULES_DNSTAP_PORT`, and it reconnects about
+once a second while nothing listens.
+
+The pipeline is a chain of generators, so memory holds one batch and the queries
+still waiting for an answer:
+
+```
+bytes -> frames -> records -> exchanges -> rows
+```
+
+A query and its answer arrive as two dnstap messages. unbound stamps the answer
+with `response_time` and never with `query_time`, so reply time exists only
+across the pair. The key is client, port, name, and type, and it repeats,
+because clients reuse a source port. Each key holds a queue, and the oldest
+query takes the next answer.
+
+The table is partitioned by day. Measured on one sample, the house makes about
+250,000 queries a day, so 30 days is near 7.5 million rows. Dropping a partition
+is instant and leaves nothing to vacuum.
+
+```
+uv run dnsrules partitions --ahead 7 --keep 30
+```
+
+Run it daily, and well ahead of the rows it serves. A day with no partition
+still accepts rows, into the DEFAULT partition, and that day can then no longer
+take a partition of its own. The command reports it when that happens.
+
 ## Fixtures
 
 The dnstap stream and the RPZ log lines use formats this project does not

@@ -116,19 +116,28 @@ dnstap is on, and a capture is in hand.
       and the oldest query takes the next answer
 - [x] Fall back to the in-band signal: NXDOMAIN with the RA bit cleared means a
       policy blocked it
-- [ ] Listen on the dnstap port, and reconnect without losing the stream
-- [ ] `ingest` management command, batching inserts on a one second tick
+- [x] `unbound/receiver.py`: listen, and take one connection after another.
+      Each connection is its own frame stream, so a restart of unbound never
+      looks like a corrupt frame
+- [x] `ingest` management command, batching inserts on a size or a one second
+      tick, whichever comes first
+- [x] Skip a frame that does not decode. One bad frame must not end a stream
 - [ ] Join to the RPZ matches on time, client address, and qname, for the zone
       that acted
 
 ## 6. Query log table
 
-- [ ] Partition the raw table by day. Index the timestamp with BRIN
-- [ ] Columns: time, client, type, domain, status, upstream, reply time
+- [x] Partition the raw table by day. Index the timestamp with BRIN
+- [x] Columns: time, client, name, type, rcode, blocked, reply time. The
+      upstream column needs forwarder messages, which carry no client address.
+      It stays out until the rest works
+- [x] `partitions` command: make the days ahead, drop the days past retention.
+      A DEFAULT partition catches a day nobody made, so no row is ever lost
 - [ ] A filter on each column
 - [ ] Block and unblock controls on each row, temporary or permanent
 - [ ] Hourly rollups: client, registrable domain, blocked or not, and a count
-- [ ] Retention: 30 days raw, 13 months of rollups
+- [x] Retention for the raw rows: 30 days, by dropping a partition
+- [ ] Retention for the rollups: 13 months
 - [ ] Nightly job: roll up first, then drop the old partition
 - [ ] Size cap as a backstop, oldest first when it trips
 - [x] Measure the query rate before you size anything. One 206 second sample
@@ -163,6 +172,8 @@ dnstap is on, and a capture is in hand.
   - [ ] `dnsrules-web.service` and `dnsrules-ingest.service`
   - [ ] `dnsrules-prune.service` and `.timer`, every minute. Django ships no
         scheduler, and a timer needs no dependency and no extra process
+  - [ ] `dnsrules-partitions.service` and `.timer`, daily. It must run days
+        ahead of the rows it serves
   - [ ] `sysusers.d` entry for the `dnsrules` user, including `m dnsrules unbound`
   - [ ] `tmpfiles.d` entry for `/etc/dnsrules`
   - [ ] `unbound.service` drop-in that chmods the control socket

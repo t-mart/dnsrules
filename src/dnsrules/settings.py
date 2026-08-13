@@ -123,6 +123,11 @@ HOSTS_PATH = env_path("HOSTS_PATH", "/etc/dnsrules/hosts.yml")
 # group, so they need no world bit.
 UNBOUND_ZONE_MODE = int(env("ZONE_MODE", "640"), 8)
 
+# unbound connects out to this address, so dnsrules listens on it. Loopback
+# only: the stream is every DNS query in the house.
+DNSTAP_HOST = env("DNSTAP_HOST", "127.0.0.1")
+DNSTAP_PORT = int(env("DNSTAP_PORT", "6000"))
+
 # Empty means render and write the zone file, but skip the reload. No unbound
 # runs on a development machine. Every other failure here must stay loud: a
 # reload that fails quietly leaves unbound serving the previous rules while the
