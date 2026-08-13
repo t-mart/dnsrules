@@ -111,13 +111,15 @@ dnstap is on, and a capture is in hand.
       protoc
 - [x] Keep client query and client response messages only. The resolver and
       forwarder types carry no client address
-- [ ] Pair a query with its response, on client, port, and qname. Reply time is
-      the gap between them. unbound fills `response_time` only, so one message
-      cannot give it
+- [x] Pair a query with its response, on client, port, name, and type. The key
+      repeats, because clients reuse a source port, so each key holds a queue
+      and the oldest query takes the next answer
+- [x] Fall back to the in-band signal: NXDOMAIN with the RA bit cleared means a
+      policy blocked it
+- [ ] Listen on the dnstap port, and reconnect without losing the stream
 - [ ] `ingest` management command, batching inserts on a one second tick
-- [ ] Join to the RPZ matches on time, client address, and qname
-- [ ] Fall back to the in-band signal when the join fails: NXDOMAIN with the RA
-      bit cleared means a policy blocked it
+- [ ] Join to the RPZ matches on time, client address, and qname, for the zone
+      that acted
 
 ## 6. Query log table
 

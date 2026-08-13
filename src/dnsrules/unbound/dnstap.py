@@ -14,6 +14,8 @@ Two facts about unbound, both read from its source:
 """
 
 import ipaddress
+from collections import defaultdict, deque
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -106,3 +108,98 @@ def decode(payload: bytes) -> Record:
         rcode=dns.rcode.to_text(answer.rcode()) if is_response else None,
         recursion_available=bool(answer.flags & dns.flags.RA) if is_response else None,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Exchange:
+    """One row of the query log: a question and what came back."""
+
+    at: datetime
+    client: ipaddress.IPv4Address | ipaddress.IPv6Address
+    qname: str
+    qtype: str
+    # None when no answer arrived inside the window.
+    rcode: str | None
+    recursion_available: bool | None
+    reply_ms: float | None
+
+    @property
+    def blocked(self) -> bool:
+        """The in-band signal, from `rpz-signal-nxdomain-ra: yes`.
+
+        A policy answer clears RA. A name that truly does not exist keeps it.
+        The journal names which zone acted. This is the fallback when that join
+        finds nothing.
+        """
+        return self.rcode == "NXDOMAIN" and self.recursion_available is False
+
+
+def _key(record: Record) -> tuple:
+    return (record.client, record.port, record.qname, record.qtype)
+
+
+def _exchange(query: Record | None, answer: Record | None) -> Exchange:
+    first = query or answer
+    assert first is not None
+    reply_ms = None
+    if query is not None and answer is not None:
+        reply_ms = (answer.at - query.at).total_seconds() * 1000
+    return Exchange(
+        at=first.at,
+        client=first.client,
+        qname=first.qname,
+        qtype=first.qtype,
+        rcode=answer.rcode if answer else None,
+        recursion_available=answer.recursion_available if answer else None,
+        reply_ms=reply_ms,
+    )
+
+
+def pair(
+    records: Iterable[Record], *, timeout: timedelta = timedelta(seconds=10)
+) -> Iterator[Exchange]:
+    """Join each query to its answer, and yield one exchange for each.
+
+    unbound stamps a client response with `response_time` and never with
+    `query_time`, so reply time exists only across the pair.
+
+    The key is client, port, name, and type. It is not unique: measured on a
+    real capture, 108 of 488 keys repeated, some four times. Clients reuse a
+    source port. So each key holds a queue, and the oldest query takes the next
+    answer. Nothing is overwritten, and every query reaches the log.
+
+    A query with no answer inside `timeout` is yielded alone. The clock comes
+    from the records, never from this machine, so a replay gives the same
+    result as a live stream.
+
+    Each exchange is stamped with the time the query arrived, so the output
+    runs near time order, out by at most `timeout`. That suits a BRIN index.
+    """
+    waiting: dict[tuple, deque[Record]] = defaultdict(deque)
+    # Arrival order, for expiry. A paired query stays here until it ages out,
+    # and the head check below skips it.
+    arrivals: deque[Record] = deque()
+
+    def expire(deadline: datetime) -> Iterator[Exchange]:
+        while arrivals and arrivals[0].at < deadline:
+            query = arrivals.popleft()
+            queue = waiting.get(_key(query))
+            if queue and queue[0] is query:
+                queue.popleft()
+                if not queue:
+                    del waiting[_key(query)]
+                yield _exchange(query, None)
+
+    for record in records:
+        key = _key(record)
+        if record.is_response:
+            queue = waiting.get(key)
+            query = queue.popleft() if queue else None
+            if queue is not None and not queue:
+                del waiting[key]
+            yield _exchange(query, record)
+        else:
+            waiting[key].append(record)
+            arrivals.append(record)
+        yield from expire(record.at - timeout)
+    yield from expire(datetime.max.replace(tzinfo=UTC))
