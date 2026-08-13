@@ -5,8 +5,16 @@ default. This module must import with an empty environment, because the
 install procedure runs commands before the environment file exists.
 """
 
+import importlib.util
 import os
 import secrets
+from pathlib import Path
+
+PACKAGE_DIR = Path(__file__).resolve().parent
+
+# Only meaningful in a source checkout. django-tailwind-cli resolves its paths
+# against it, and that tool never runs on an installed copy.
+BASE_DIR = PACKAGE_DIR.parent.parent
 
 
 def env(name: str, default: str = "") -> str:
@@ -46,6 +54,11 @@ INSTALLED_APPS = [
     "dnsrules.queries",
     "dnsrules.rules",
 ]
+
+# The Tailwind builder is a development dependency. It is absent from an
+# installed copy, which already carries the compiled stylesheet.
+if importlib.util.find_spec("django_tailwind_cli"):
+    INSTALLED_APPS.append("django_tailwind_cli")
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -128,7 +141,18 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = env("STATIC_ROOT") or None
 
+# One static home, inside the package, so the wheel carries every asset. It is
+# not an app static directory, so nothing finds it twice.
+STATICFILES_DIRS = [PACKAGE_DIR / "static"]
+
 # Serve straight out of the installed package. This removes collectstatic from
 # the install procedure, and the cost is nothing at this traffic.
 WHITENOISE_USE_FINDERS = True
 WHITENOISE_AUTOREFRESH = DEBUG
+
+# Tailwind. The source lives outside the package so it is never served. The
+# output lands inside the package and is committed, because `uv tool install`
+# builds a wheel from the git tree and cannot run a CSS compiler.
+TAILWIND_CLI_VERSION = "4.3.3"
+TAILWIND_CLI_SRC_CSS = "assets/app.css"
+TAILWIND_CLI_DIST_CSS = "dnsrules/app.css"

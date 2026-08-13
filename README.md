@@ -29,9 +29,8 @@ point.
 ## Frontend
 
 The frontend is [htmx 4.0.0-beta6](https://four.htmx.org/), vendored at
-`src/dnsrules/core/static/dnsrules/htmx.min.js`. There is no build step and no
-CDN. The panel must work when DNS or the reverse proxy is broken, so it loads
-nothing from the network.
+`src/dnsrules/static/dnsrules/htmx.min.js`. There is no CDN. The panel must work
+when DNS or the reverse proxy is broken, so it loads nothing from the network.
 
 The vendored build has this sha384:
 
@@ -42,7 +41,32 @@ The vendored build has this sha384:
 Run `just htmx-hash` to compare. An upgrade is a deliberate act: download the
 new build, record the new hash here, and read the htmx changelog first.
 
-Two htmx 4 rules that htmx 1 and 2 documentation gets wrong:
+## Styling
+
+Tailwind CSS 4, built by
+[django-tailwind-cli](https://django-tailwind-cli.readthedocs.io/). It downloads
+the standalone Tailwind binary, so the project needs no Node.js.
+
+| Path | Role |
+| --- | --- |
+| `assets/app.css` | source, outside the package so it is never served |
+| `src/dnsrules/static/dnsrules/app.css` | compiled output, committed |
+| `.django_tailwind_cli/` | the downloaded binary, ignored by git |
+
+The compiled stylesheet is committed on purpose. `uv tool install git+...`
+builds a wheel from the git tree and cannot run a CSS compiler, so any file that
+git does not track cannot reach the router.
+
+The risk is a stale stylesheet: edit a template, forget to rebuild, and the new
+classes do nothing. `just check` rebuilds and then fails if the committed file
+changed, so the mistake cannot survive a check.
+
+Run `just dev` during development. It serves the site and rebuilds the
+stylesheet on every change.
+
+## htmx 4
+
+Two rules that htmx 1 and 2 documentation gets wrong:
 
 - Attribute inheritance is explicit. The CSRF header needs
   `hx-headers:inherited`, not `hx-headers`.

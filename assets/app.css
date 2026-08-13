@@ -1,0 +1,23 @@
+@import "tailwindcss" source(none);
+
+/* Explicit, so the scan never depends on the working directory. */
+@source "../src/dnsrules";
+
+@layer base {
+  html {
+    color-scheme: light dark;
+  }
+
+  label {
+    display: block;
+    font-weight: 500;
+  }
+
+  input {
+    border: 1px solid;
+    border-color: var(--color-slate-400);
+    border-radius: var(--radius-sm);
+    padding: --spacing(1) --spacing(2);
+    width: 100%;
+  }
+}

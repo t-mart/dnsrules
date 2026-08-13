@@ -11,3 +11,6 @@ wheels/
 
 # Local configuration
 .env
+
+# Downloaded Tailwind CLI binary
+.django_tailwind_cli/

@@ -3,10 +3,12 @@
 {% block title %}Sign in{% endblock %}
 
 {% block content %}
-  <h1>Sign in</h1>
-  <form method="post">
+  <h1 class="mb-4 text-xl font-semibold">Sign in</h1>
+  <form class="flex max-w-sm flex-col gap-4" method="post">
     {% csrf_token %}
     {{ form.as_div }}
-    <button type="submit">Sign in</button>
+    <button class="rounded bg-slate-900 px-3 py-2 text-white dark:bg-slate-100 dark:text-slate-900" type="submit">
+      Sign in
+    </button>
   </form>
 {% endblock %}
