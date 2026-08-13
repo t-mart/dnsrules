@@ -1,7 +1,12 @@
 @import "tailwindcss" source(none);
 
-/* Explicit, so the scan never depends on the working directory. */
-@source "../src/dnsrules";
+/* Explicit, so the scan never depends on the working directory.
+
+   Templates only. Scanning the whole tree reads Python prose as class names:
+   the word "relative" in a docstring emitted a `.relative` rule that no
+   template used. Add another @source line if a Python file ever holds real
+   class names. */
+@source "../src/dnsrules/**/*.html";
 
 @layer base {
   html {

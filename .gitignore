@@ -14,3 +14,6 @@ wheels/
 
 # Downloaded Tailwind CLI binary
 .django_tailwind_cli/
+
+# Local stand-in for the router's /etc/unbound
+var/

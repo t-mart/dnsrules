@@ -80,6 +80,53 @@ with their defaults. `settings.py` must import with an empty environment,
 because the install procedure runs commands before the environment file exists.
 A test enforces this.
 
+## Database
+
+PostgreSQL. Development uses `bayleaf.gothere.dev`, where the database and the
+role exist already. The role needs `CREATEDB`, because pytest builds its own
+test database:
+
+```
+psql --host bayleaf.gothere.dev --username postgres --command "ALTER ROLE dnsrules_test CREATEDB"
+```
+
+`DNSRULES_DB_SSLMODE=disable` is correct for that server. It offers no SSL, so
+`require` fails and `prefer` falls back to plain text after a wasted round trip.
+The link is Tailscale, which encrypts and authenticates it already.
+
+On mace, dnsrules keeps its rules in Postgres on a different host. A database
+outage stops rule changes, and it stops expiries, so a temporary unblock
+outlives its window. Resolution continues, because unbound reads the zone file
+from disk.
+
+## unbound
+
+`src/dnsrules/unbound/` holds every part that touches the router. It imports no
+Django, so it tests without a database.
+
+A rule change runs in this order: save the row, render every rule to zone text,
+write the file atomically, then reload the zone through the control socket.
+
+| Setting | Purpose |
+| --- | --- |
+| `DNSRULES_ZONE_PATH` | the zone file dnsrules owns and rewrites |
+| `DNSRULES_ZONE_NAME` | the zone to reload |
+| `DNSRULES_OVERRIDES_PATH` | Ansible's exemption zone, read only |
+| `DNSRULES_CONTROL_SOCKET` | unbound's control socket |
+
+These are settings, not constants, because unbound is chrooted to
+`/etc/unbound`. If mace drops the chroot, the zone file moves and one setting
+changes.
+
+A development machine has no unbound. Leave `DNSRULES_CONTROL_SOCKET` empty to
+write the zone file and skip the reload. Every other reload fault stays an
+error. A silent reload failure is the worst outcome here, because the website
+reports success while unbound still serves the previous rules.
+
+dnsrules reads the SOA header back out of the zone file rather than keeping its
+own copy. Ansible writes that header once, with `force: false`, and never
+touches the file again.
+
 ## Deployment
 
 Not written yet. The plan: install with

@@ -21,18 +21,21 @@ useful tool before the log exists.
 
 The write path. It needs Postgres and the router, not dnstap.
 
-- [ ] Run Postgres locally and record the setup in the README
-- [ ] `Rule` model: domain, action, source, expiry, note, timestamps
-- [ ] Validate the domain against the pattern in
+- [x] Reach Postgres and record the setup in the README. It is on `bayleaf`,
+      not local, and the test role needs `CREATEDB`
+- [x] Validate the domain against the pattern in
       `vars/schemas/unbound_blocklist.schema.json` from the `mace` repo
-- [ ] `unbound/zone.py`: render rules to zone text, then write atomically
-- [ ] Choose the right hand side from a fixed table. Never concatenate user
+- [x] `unbound/zone.py`: render rules to zone text, then write atomically
+- [x] Read the SOA header back out of the zone file, so it cannot drift from
+      the one Ansible writes
+- [x] Choose the right hand side from a fixed table. Never concatenate user
       input into a rule line
-- [ ] Test the fused-line case: two rules joined by a lost newline load without
+- [x] Test the fused-line case: two rules joined by a lost newline load without
       complaint and invert the intent
-- [ ] `unbound/control.py`: talk to the control socket, run `auth_zone_reload`
-- [ ] Make the zone file path a setting, not a constant. unbound is chrooted
+- [x] `unbound/control.py`: talk to the control socket, run `auth_zone_reload`
+- [x] Make the zone file path a setting, not a constant. unbound is chrooted
       today and that may change
+- [ ] `Rule` model: domain, action, source, expiry, note, timestamps
 - [ ] `rules/services.py`: reconcile under `pg_advisory_lock`, then render,
       write, and reload
 - [ ] Refuse to render when the database read fails. An empty render silently

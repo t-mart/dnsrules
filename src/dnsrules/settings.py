@@ -106,6 +106,24 @@ DATABASES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# unbound. These are paths on the router, and they are settings rather than
+# constants because unbound is chrooted to /etc/unbound today. Dropping the
+# chroot moves the zone file, and then one setting changes and nothing else.
+UNBOUND_ZONE_NAME = env("ZONE_NAME", "runtime_rules")
+UNBOUND_ZONE_PATH = Path(env("ZONE_PATH", "/etc/unbound/zones/rpz-runtime-rules.zone"))
+UNBOUND_ZONE_MODE = int(env("ZONE_MODE", "644"), 8)
+
+# Ansible renders this one. Read it, never write it.
+UNBOUND_OVERRIDES_PATH = Path(
+    env("OVERRIDES_PATH", "/etc/unbound/rpz-privacy-blocklist-overrides.zone")
+)
+
+# Empty means render and write the zone file, but skip the reload. No unbound
+# runs on a development machine. Every other failure here must stay loud: a
+# reload that fails quietly leaves unbound serving the previous rules while the
+# website reports success.
+UNBOUND_CONTROL_SOCKET = env("CONTROL_SOCKET", "/run/unbound/control.sock")
+
 _VALIDATION = "django.contrib.auth.password_validation"
 
 AUTH_PASSWORD_VALIDATORS = [
