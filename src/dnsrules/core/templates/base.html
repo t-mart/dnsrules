@@ -1,0 +1,28 @@
+{% load static %}<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {# htmx 4 swaps every response except 204 and 304. Keep 4xx swappable so a
+       form can answer 422 with its own errors, but never swap a server fault. #}
+    <meta name="htmx-config" content='{"noSwap": [204, 304, "5xx"]}'>
+    <title>{% block title %}dnsrules{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'dnsrules/app.css' %}">
+    <script src="{% static 'dnsrules/htmx.min.js' %}" defer></script>
+  </head>
+  {# htmx 4 makes inheritance explicit, so the CSRF header needs :inherited. #}
+  <body hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>
+    <header>
+      <a href="{% url 'dashboard' %}">dnsrules</a>
+      {% if user.is_authenticated %}
+        <form method="post" action="{% url 'logout' %}">
+          {% csrf_token %}
+          <button type="submit">Sign out</button>
+        </form>
+      {% endif %}
+    </header>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>
