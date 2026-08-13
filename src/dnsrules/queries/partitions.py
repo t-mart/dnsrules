@@ -97,6 +97,44 @@ def _days(today: date, ahead: int) -> list[date]:
     return [today + timedelta(days=offset) for offset in range(ahead + 1)]
 
 
+def size() -> int:
+    """Bytes held by the query log: every partition, with indexes and TOAST.
+
+    The parent table holds no rows of its own, so it must not be measured on
+    its own.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT coalesce(sum(pg_total_relation_size(child.oid)), 0)
+            FROM pg_inherits
+            JOIN pg_class parent ON parent.oid = pg_inherits.inhparent
+            JOIN pg_class child ON child.oid = pg_inherits.inhrelid
+            WHERE parent.relname = %s
+            """,
+            [TABLE],
+        )
+        return int(cursor.fetchone()[0])
+
+
+def enforce_cap(limit: int, today: date | None = None) -> list[date]:
+    """Drop the oldest days until the log is under `limit` bytes.
+
+    A backstop, not a schedule. Retention by age is the plan, and this catches
+    the day the traffic is not what the plan assumed. It never drops today or
+    a day that is still coming, so a full disk still leaves a working log.
+    """
+    today = today or date.today()
+    dropped = []
+    for day in sorted(day for day in existing().values() if day < today):
+        if size() <= limit:
+            break
+        drop(day)
+        dropped.append(day)
+        logger.warning("The query log is over its cap, so %s went early.", day)
+    return dropped
+
+
 def default_rows() -> int:
     """Rows that fell into the DEFAULT partition. Any is a fault to look at."""
     with connection.cursor() as cursor:

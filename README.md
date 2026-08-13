@@ -248,6 +248,39 @@ Run it daily, and well ahead of the rows it serves. A day with no partition
 still accepts rows, into the DEFAULT partition, and that day can then no longer
 take a partition of its own. The command reports it when that happens.
 
+`DNSRULES_LOG_MAX_BYTES` is a backstop under that retention, not a schedule.
+The oldest day goes early when the log passes it. The command says so, and it
+never drops today or a day that is still coming.
+
+## The archive
+
+Raw rows live 30 days. `dnsrules rollup` keeps a small archive for 13 months,
+in two shapes:
+
+| Table | Holds | Rows a day |
+| --- | --- | --- |
+| `queries_hour` | One hour of one client, blocked or not, and a count | near 600 |
+| `queries_top` | The 100 leading names of a day, blocked and allowed apart | 200 |
+
+The name is the whole cost of an archive. Measured on a real capture, an hourly
+rollup keyed on the name holds near 1,600 rows an hour. That is 15 million rows
+over 13 months, against the 7.5 million raw rows it replaces. An archive that
+costs twice the thing it archives is not one.
+
+Folding names to the registrable domain only halves that, and it needs the
+public suffix list to be correct: two labels turn `bbc.co.uk` into `co.uk`. So
+the archive drops the name where it costs the most, and keeps a head of it
+where a reader wants one. In one capture of 608 queries, 162 names appeared,
+and the top 50 covered 64 percent of them.
+
+Rollups run over finished hours and finished days. The hour that is still
+filling waits, because a count that changes after it is written is worse than
+one that arrives late. Every statement is an upsert, so a second run writes the
+same numbers.
+
+The nightly unit runs `rollup`, then `partitions`. A oneshot stops at the first
+failure, so a rollup that fails keeps the day it had not read yet.
+
 ## Fixtures
 
 The dnstap stream and the RPZ log lines use formats this project does not
@@ -353,7 +386,7 @@ upgrade, and an edited unit does not.
 
    ```
    sudo systemctl enable --now dnsrules-web dnsrules-ingest
-   sudo systemctl enable --now dnsrules-prune.timer dnsrules-partitions.timer
+   sudo systemctl enable --now dnsrules-prune.timer dnsrules-nightly.timer
    ```
 
 6. Make the first account.
@@ -386,7 +419,7 @@ holds that order inside one restart.
 | `dnsrules-web.service` | Serves the website through gunicorn |
 | `dnsrules-ingest.service` | Writes the query log from the dnstap stream |
 | `dnsrules-prune.timer` | Deletes expired rules every minute |
-| `dnsrules-partitions.timer` | Keeps the query log partitions ahead, daily |
+| `dnsrules-nightly.timer` | Rolls the log up, then moves its partitions on |
 
 `dnsrules-web` and `dnsrules-prune` write a zone file and reload a zone. They
 carry `ProtectSystem=strict`, which makes `/etc` read-only, so both list

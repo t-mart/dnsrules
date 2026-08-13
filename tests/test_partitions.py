@@ -79,3 +79,30 @@ def test_dropping_a_day_removes_its_rows():
 
 def test_dropping_a_day_that_is_absent_reports_it():
     assert partitions.drop(date(2020, 1, 1)) is False
+
+
+def test_size_counts_the_partitions_and_not_the_parent():
+    """The parent holds no rows, so measuring it alone always reads zero."""
+    partitions.reconcile(TODAY, ahead=0, keep=30)
+    assert partitions.size() > 0
+
+
+def test_the_cap_drops_the_oldest_day_first():
+    for offset in (3, 2, 1):
+        partitions.create(TODAY - timedelta(days=offset))
+    dropped = partitions.enforce_cap(0, TODAY)
+    assert dropped == [TODAY - timedelta(days=offset) for offset in (3, 2, 1)]
+
+
+def test_the_cap_leaves_today_and_the_days_ahead():
+    """A full disk still has to leave a log that accepts rows."""
+    partitions.reconcile(TODAY, ahead=2, keep=30)
+    partitions.enforce_cap(0, TODAY)
+    assert set(partitions.existing().values()) == {
+        TODAY + timedelta(days=offset) for offset in range(3)
+    }
+
+
+def test_the_cap_does_nothing_under_the_limit():
+    partitions.reconcile(TODAY, ahead=1, keep=30)
+    assert partitions.enforce_cap(10 * 1024**3, TODAY) == []

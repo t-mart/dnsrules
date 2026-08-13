@@ -1,7 +1,7 @@
-# The command makes days ahead of the rows that need them, so the hour does
+# `partitions` makes days ahead of the rows that need them, so the hour does
 # not matter. Persistent catches a router that was off at the last run.
 [Unit]
-Description=Keep the dnsrules query log partitions ahead of the rows
+Description=Roll up the dnsrules query log every night
 
 [Timer]
 OnCalendar=daily

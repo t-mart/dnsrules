@@ -122,11 +122,20 @@ dnstap is on, and a capture is in hand.
 - [x] A filter on each column: client, name, type, status, and a time window
 - [x] Block and unblock controls on each row, temporary or permanent. A second
       click replaces the first rule rather than making a second one
-- [ ] Hourly rollups: client, registrable domain, blocked or not, and a count
+- [x] Hourly rollups, but with no name in them: client, blocked or not, and a
+      count. The name was measured and dropped. Keyed on the name, an hour
+      holds near 1,600 rows, which is 15 million over 13 months against the 7.5
+      million raw rows it replaces. The registrable domain only halves that,
+      and it needs the public suffix list to tell `bbc.co.uk` from `co.uk`
+- [x] Daily top names instead, blocked and allowed apart, 100 each. The tail is
+      what costs, and it is the part nobody reads: in one capture the top 50 of
+      162 names covered 64 percent of the queries
 - [x] Retention for the raw rows: 30 days, by dropping a partition
-- [ ] Retention for the rollups: 13 months
-- [ ] Nightly job: roll up first, then drop the old partition
-- [ ] Size cap as a backstop, oldest first when it trips
+- [x] Retention for the rollups: 13 months, by deleting rows. One day of the
+      archive is near 600 rows, so a DELETE never has enough to move
+- [x] Nightly job: roll up first, then drop the old partition. Two ExecStart
+      lines in one oneshot unit, which stops at the first failure
+- [x] Size cap as a backstop, oldest first when it trips
 - [x] Measure the query rate before you size anything. One 206 second sample
       gave 608 queries, near 2.9 a second. Call it 250,000 rows a day, so 30
       days of raw rows is about 7.5 million

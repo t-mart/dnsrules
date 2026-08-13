@@ -129,6 +129,11 @@ HOSTS_PATH = env_path("HOSTS_PATH", "/etc/dnsrules/hosts.yml")
 # group, so they need no world bit.
 UNBOUND_ZONE_MODE = int(env("ZONE_MODE", "640"), 8)
 
+# A backstop under the 30 day retention, not a schedule. 30 days of raw rows
+# is near 7.5 million, which measures around 2 GiB with its indexes. The cap
+# trips only if the traffic is not what that assumed.
+LOG_MAX_BYTES = int(env("LOG_MAX_BYTES", str(4 * 1024**3)))
+
 # unbound connects out to this address, so dnsrules listens on it. Loopback
 # only: the stream is every DNS query in the house.
 DNSTAP_HOST = env("DNSTAP_HOST", "127.0.0.1")

@@ -28,12 +28,21 @@ class Unit(configparser.ConfigParser):
 
 
 def parse(path):
-    # strict=False: a unit repeats a key on purpose, as ExecStartPost does.
-    # configparser keeps the last of a repeated key, so no assertion below
-    # depends on one.
+    # strict=False: a unit repeats a key on purpose, as ExecStart does in the
+    # nightly unit. configparser keeps the last one, so read a repeated key
+    # with lines() instead.
     parser = Unit(strict=False)
     parser.read_string(path.read_text())
     return parser
+
+
+def lines(path, key: str) -> list[str]:
+    """Every value of one key, in file order."""
+    return [
+        line.split("=", 1)[1]
+        for line in path.read_text().splitlines()
+        if line.startswith(f"{key}=")
+    ]
 
 
 def test_the_tree_holds_every_kind_of_file():
@@ -52,11 +61,19 @@ def test_a_unit_parses(name):
 @pytest.mark.parametrize("name", SERVICES)
 def test_a_service_runs_a_command_this_project_has(name):
     """A renamed management command must fail here, not on the router."""
-    unit = parse(SYSTEMD / name)
-    line = unit["Service"]["ExecStart"]
-    binary, command = line.split()[0], line.split()[1]
-    assert binary == BINARY
-    assert command in get_commands()
+    for line in lines(SYSTEMD / name, "ExecStart"):
+        binary, command = line.split()[0], line.split()[1]
+        assert binary == BINARY
+        assert command in get_commands()
+
+
+def test_the_nightly_unit_rolls_up_before_it_drops_a_partition():
+    """A oneshot stops at the first failure, so this order keeps the day."""
+    commands = [
+        line.split()[1]
+        for line in lines(SYSTEMD / "dnsrules-nightly.service", "ExecStart")
+    ]
+    assert commands == ["rollup", "partitions"]
 
 
 @pytest.mark.parametrize("name", SERVICES)
