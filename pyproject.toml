@@ -41,6 +41,20 @@ select = ["B", "DJ", "E", "F", "I", "RUF", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "*/migrations/*" = ["E501", "RUF012"]
+# Django reads Meta.ordering and Meta.indexes as declarations, not as shared
+# mutable state.
+"*/models.py" = ["RUF012"]
+
+# ty does not model Django's field descriptors, so it reads `self.domain` as a
+# CharField rather than a str, and it cannot follow `QuerySet.as_manager`.
+# These are limits of the checker, not faults in the models.
+[[tool.ty.overrides]]
+include = ["src/dnsrules/**/models.py"]
+
+[tool.ty.overrides.rules]
+invalid-assignment = "ignore"
+invalid-argument-type = "ignore"
+missing-argument = "ignore"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dnsrules.settings"

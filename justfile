@@ -3,8 +3,12 @@ set dotenv-load := true
 default: check
 
 # run the development server, rebuilding css on every change
-dev:
+dev: var
     uv run dnsrules tailwind runserver
+
+# stand in for the router's /etc/unbound, which no development machine has
+var:
+    mkdir --parents var
 
 # compile the stylesheet
 # --force is required: the up-to-date check reads the source css only, so a

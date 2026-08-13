@@ -110,7 +110,15 @@ def write(path: Path, text: str, *, mode: int = 0o644) -> None:
 
     The temporary file goes in the same directory, because rename is atomic
     only within one filesystem.
+
+    The directory must exist. On the router unbound owns it, so creating it
+    here would hide a wrong path behind a directory nothing reads.
     """
+    if not path.parent.is_dir():
+        raise FileNotFoundError(
+            f"The zone directory {path.parent} does not exist. Create it, or "
+            f"set DNSRULES_ZONE_PATH."
+        )
     handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
         with os.fdopen(handle, "w") as file:

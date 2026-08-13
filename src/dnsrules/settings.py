@@ -106,16 +106,25 @@ DATABASES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+
+def env_path(name: str, default: str) -> Path:
+    """Resolve a relative path against BASE_DIR, so it never depends on cwd.
+
+    Router paths are absolute, so this only affects a source checkout.
+    """
+    return Path(BASE_DIR, env(name, default))
+
+
 # unbound. These are paths on the router, and they are settings rather than
 # constants because unbound is chrooted to /etc/unbound today. Dropping the
 # chroot moves the zone file, and then one setting changes and nothing else.
 UNBOUND_ZONE_NAME = env("ZONE_NAME", "runtime_rules")
-UNBOUND_ZONE_PATH = Path(env("ZONE_PATH", "/etc/unbound/zones/rpz-runtime-rules.zone"))
+UNBOUND_ZONE_PATH = env_path("ZONE_PATH", "/etc/unbound/zones/rpz-runtime-rules.zone")
 UNBOUND_ZONE_MODE = int(env("ZONE_MODE", "644"), 8)
 
 # Ansible renders this one. Read it, never write it.
-UNBOUND_OVERRIDES_PATH = Path(
-    env("OVERRIDES_PATH", "/etc/unbound/rpz-privacy-blocklist-overrides.zone")
+UNBOUND_OVERRIDES_PATH = env_path(
+    "OVERRIDES_PATH", "/etc/unbound/rpz-privacy-blocklist-overrides.zone"
 )
 
 # Empty means render and write the zone file, but skip the reload. No unbound

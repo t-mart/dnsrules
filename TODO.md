@@ -35,15 +35,34 @@ The write path. It needs Postgres and the router, not dnstap.
 - [x] `unbound/control.py`: talk to the control socket, run `auth_zone_reload`
 - [x] Make the zone file path a setting, not a constant. unbound is chrooted
       today and that may change
-- [ ] `Rule` model: domain, action, source, expiry, note, timestamps
-- [ ] `rules/services.py`: reconcile under `pg_advisory_lock`, then render,
+- [x] `Rule` model: domain, action, source, expiry, note, timestamps
+- [x] `rules/services.py`: reconcile under `pg_advisory_lock`, then render,
       write, and reload
-- [ ] Refuse to render when the database read fails. An empty render silently
+- [x] Refuse to render when the database read fails. An empty render silently
       drops every rule
-- [ ] `prune` management command, plus a timer every minute
+- [x] `prune` and `reconcile` management commands
+- [ ] Run `prune` from a timer every minute
 - [ ] Rules page: list, add, edit, remove, with htmx
 - [ ] Read `privacy_blocklist_overrides` read-only, so the page shows the whole
       picture
+
+## Fixtures: capture, never invent
+
+Three interfaces carry a wire format this project does not control: the RPZ log
+lines, the dnstap stream, and the control socket. A generator written here
+tests the decoder against its own assumptions, so a shared misreading of the
+format passes every test and fails on the router.
+
+So capture real bytes from `mace` once, commit them, and replay them. Synthesize
+only to build a case that capture cannot reach, such as a truncated frame.
+
+- [ ] Capture `journalctl --unit unbound --output json` lines that cover each
+      RPZ action, and commit them
+- [ ] Capture a dnstap framestream to a file, and commit a short one
+- [ ] Record the capture commands in the README, so a fixture can be refreshed
+
+The control socket is the exception. Its protocol is one line of text, so the
+tests already run a real unix socket and assert the bytes on the wire.
 
 ## 2. RPZ match log
 

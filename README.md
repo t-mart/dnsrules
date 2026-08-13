@@ -127,6 +127,16 @@ dnsrules reads the SOA header back out of the zone file rather than keeping its
 own copy. Ansible writes that header once, with `force: false`, and never
 touches the file again.
 
+Two commands drive the zone file:
+
+```
+uv run dnsrules reconcile
+uv run dnsrules prune
+```
+
+`reconcile` renders every active rule and reloads. `prune` deletes expired
+rules first, and does nothing more when none expired.
+
 ## Deployment
 
 Not written yet. The plan: install with

@@ -1,4 +1,5 @@
 import pytest
+from conftest import rules_in
 
 from dnsrules.unbound.domain import InvalidDomain
 from dnsrules.unbound.zone import (
@@ -10,38 +11,6 @@ from dnsrules.unbound.zone import (
     render,
     write,
 )
-
-# Copied from the "Create the runtime rules zone if absent" task in mace's
-# playbook.yml. That task runs once, with force: false.
-ANSIBLE_ZONE = """\
-$TTL 3600
-@ SOA localhost. root.localhost. 1 14400 3600 86400 3600
-  NS  localhost.
-
-; Runtime state. Ansible creates this file once and never rewrites it.
-; This zone is read first, so a rule here beats every other RPZ zone.
-;
-; Format:
-; <domain> CNAME rpz-passthru.   ; ignore the blocklist
-; <domain> CNAME .               ; block, answer NXDOMAIN
-"""
-
-
-@pytest.fixture
-def zone_path(tmp_path):
-    path = tmp_path / "rpz-runtime-rules.zone"
-    path.write_text(ANSIBLE_ZONE)
-    return path
-
-
-def rules_of(text):
-    header = read_header_of(text)
-    return [line for line in text[len(header) :].splitlines() if line.strip()]
-
-
-def read_header_of(text):
-    marker = "\n; <domain> CNAME .               ; block, answer NXDOMAIN\n"
-    return text[: text.index(marker) + len(marker)]
 
 
 def test_read_header_keeps_the_soa_and_the_comments(zone_path):
@@ -57,8 +26,8 @@ def test_read_header_falls_back_when_the_file_is_absent(tmp_path):
     assert read_header(tmp_path / "missing.zone") == FALLBACK_HEADER
 
 
-def test_read_header_stops_at_the_first_rule(zone_path):
-    zone_path.write_text(f"{ANSIBLE_ZONE}\nexample.com CNAME .\n; trailing\n")
+def test_read_header_stops_at_the_first_rule(zone_path, ansible_zone):
+    zone_path.write_text(f"{ansible_zone}\nexample.com CNAME .\n; trailing\n")
     header = read_header(zone_path)
     assert "; Format:" in header
     assert "example.com" not in header
@@ -74,7 +43,7 @@ def test_render_writes_one_line_per_rule(zone_path):
         ],
         read_header(zone_path),
     )
-    assert rules_of(text) == [
+    assert rules_in(text) == [
         "a.example.com CNAME rpz-passthru.",
         "b.example.com CNAME .",
         "c.example.com CNAME *.",
@@ -101,7 +70,7 @@ def test_render_normalizes_and_sorts(zone_path):
         [Record("B.example.com.", Action.BLOCK), Record("a.EXAMPLE.com", Action.BLOCK)],
         read_header(zone_path),
     )
-    assert rules_of(text) == ["a.example.com CNAME .", "b.example.com CNAME ."]
+    assert rules_in(text) == ["a.example.com CNAME .", "b.example.com CNAME ."]
 
 
 def test_render_refuses_a_fused_line(zone_path):
@@ -154,17 +123,22 @@ def test_write_replaces_the_file_and_leaves_no_temporary(zone_path):
     assert list(zone_path.parent.iterdir()) == [zone_path]
 
 
+def test_write_names_the_missing_directory(tmp_path):
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        write(tmp_path / "absent" / "rules.zone", "hello\n")
+
+
 def test_write_sets_the_mode(zone_path):
     write(zone_path, "hello\n", mode=0o640)
     assert zone_path.stat().st_mode & 0o777 == 0o640
 
 
-def test_write_keeps_the_old_file_when_it_fails(zone_path, monkeypatch):
+def test_write_keeps_the_old_file_when_it_fails(zone_path, ansible_zone, monkeypatch):
     def boom(*args, **kwargs):
         raise OSError("disk full")
 
     monkeypatch.setattr("dnsrules.unbound.zone.os.replace", boom)
     with pytest.raises(OSError, match="disk full"):
         write(zone_path, "replacement\n")
-    assert zone_path.read_text() == ANSIBLE_ZONE
+    assert zone_path.read_text() == ansible_zone
     assert list(zone_path.parent.iterdir()) == [zone_path]
