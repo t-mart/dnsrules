@@ -89,7 +89,7 @@ def _context(request: Request, **extra) -> dict:
         groups = []
     context = {
         "page": page,
-        "clients": [(row, describe(row.client) if describe else None) for row in page],
+        "rows": [(row, describe(row.client) if describe else None) for row in page],
         "terms": terms,
         "query": request.GET.urlencode(),
         "windows": WINDOW_CHOICES,

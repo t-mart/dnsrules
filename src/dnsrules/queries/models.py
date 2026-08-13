@@ -25,7 +25,8 @@ class Query(models.Model):
     # spelled that way, so one empty value is enough.
     rcode = models.CharField(max_length=16, blank=True)
     reply_ms = models.FloatField(null=True, blank=True)
-    # NXDOMAIN with the RA bit cleared. The journal names the zone that acted.
+    # NXDOMAIN with the RA bit cleared, which `rpz-signal-nxdomain-ra` sets on
+    # a policy answer. It names no zone, and nothing here needs one.
     blocked = models.BooleanField(default=False)
 
     objects = models.Manager()

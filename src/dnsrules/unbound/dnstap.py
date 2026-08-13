@@ -8,7 +8,8 @@ no protoc. Run `just proto` after a schema change.
 Two facts about unbound, both read from its source:
 
 - It never fills the `policy` field, so a dnstap message never says which RPZ
-  zone acted. The journal says that.
+  zone acted. Only the journal does, and this project does not read it. See
+  section 2 of the design document for why.
 - A client response carries `response_time` only, never `query_time`. Reply
   time is the gap between the two messages, so the ingest must pair them.
 """
@@ -128,8 +129,8 @@ class Exchange:
         """The in-band signal, from `rpz-signal-nxdomain-ra: yes`.
 
         A policy answer clears RA. A name that truly does not exist keeps it.
-        The journal names which zone acted. This is the fallback when that join
-        finds nothing.
+        Measured against a journal capture the two agree on volume, so treat
+        this as a strong hint rather than proof.
         """
         return self.rcode == "NXDOMAIN" and self.recursion_available is False
 

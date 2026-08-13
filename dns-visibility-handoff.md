@@ -53,7 +53,7 @@ from starting, and the whole house loses DNS.
 | Interface | Direction | Purpose | Ready? |
 | --- | --- | --- | --- |
 | dnstap socket | read | every query and answer | yes |
-| journald, `unbound` unit | read | which policy blocked, and why | yes |
+| journald, `unbound` unit | read | which policy blocked | not used, see 2 |
 | `/etc/unbound/rules/<group>.zone` | write | the rules | needs the mace change |
 | `unbound-control` socket | write | reload a zone, read counters | yes |
 | `/etc/dnsrules/hosts.yml` | read | groups, hosts, and names | needs the mace change |
@@ -110,59 +110,58 @@ Never send this stream off the box in clear text. It is every DNS query in the
 house, and it is a better browsing history than the blocklist stops.
 
 A client response carries the whole answer message, so you get the rcode, the RA
-bit, and the records. It does not say which list blocked the query. Join the RPZ
-log for that.
+bit, and the records. A policy answer clears the RA bit, because
+`rpz-signal-nxdomain-ra` is on, so NXDOMAIN with RA cleared means a policy
+blocked the query. That is the whole blocked signal this project uses.
 
-## 2. The RPZ match log names the policy
+Measured once against a journal capture: 28 RPZ lines fell inside a dnstap
+window and 28 rows carried the signal, so the volumes agree. One name carried
+the signal with no line anywhere in 6,245 entries, so treat the flag as a strong
+hint rather than proof.
 
-unbound writes one line for each RPZ match to syslog. The lines reach journald
-under the `unbound` unit.
+## 2. The RPZ match log, which this project does not read
 
-Example, as `journalctl --output cat` shows it:
-
-```
-[32550:0] info: rpz: applied [runtime_rules] google-analytics.com. rpz-passthru 127.0.0.1@43605 google-analytics.com. A IN
-```
-
-Fields after the `[pid:thread] info:` prefix:
-
-| Field | Example | Meaning |
-| --- | --- | --- |
-| zone | `runtime_rules` | which RPZ zone matched |
-| rule | `google-analytics.com.` | the entry inside that zone |
-| action | `rpz-passthru` | what unbound did |
-| client | `127.0.0.1@43605` | client address and source port |
-| qname | `google-analytics.com.` | the name the client asked for |
-| qtype | `A` | record type |
-| qclass | `IN` | record class |
-
-A tested regular expression:
+unbound writes one line for each RPZ match to syslog, and journald keeps it
+under the `unbound` unit. The line names the zone that acted.
 
 ```
-rpz: applied \[(?<zone>[^\]]+)\] (?<rule>\S+) (?<action>\S+) (?<client>[^@]+)@(?<port>\d+) (?<qname>\S+) (?<qtype>\S+) (?<qclass>\S+)
+[32550:0] info: rpz: applied [privacy_blocklist] example.com rpz-nxdomain 10.0.0.8@5353 ads.example.com A IN
 ```
 
-Read it with `journalctl --unit unbound --output json --follow`. Backfill with
-`--since` at startup, so a restart loses no window.
+**dnsrules ignores it.** Measured over 24 hours, 6,245 lines: 6,235 were
+`rpz-nxdomain`, 6 were `rpz-local-data`, 4 were `rpz-passthru`. The query log
+already sees every NXDOMAIN block, because a policy answer clears the RA bit.
+So the line adds one label, the zone, to 99.8 percent of rows that carry the
+fact already.
 
-The zone field carries the `rpz-log-name` value, so it tells you which group and
-which layer acted.
+That label does not change what you do. Unblocking writes a passthru in the
+rules zone, and that zone is first, so it beats every feed whatever blocked the
+name. The one question where the answer matters, "did one of my own rules do
+this", dnsrules answers from its own table: it writes exact names, never
+wildcards, so a lookup settles it.
 
-Cautions:
+The price of ignoring it: `rpz-local-data` and `rpz-passthru` leave no trace in
+the query log, because neither changes the rcode or the RA bit. That was 10
+events in 24 hours, and neither is a block worth chasing.
 
-- Feeds use qname triggers, and unbound omits the trigger word for those. Other
-  trigger types add one token before the rule. Tolerate it.
-- Join to the dnstap rows on time, client address, and qname. There is no shared
-  request id.
-- A blocked answer clears the RA bit, because `rpz-signal-nxdomain-ra` is on.
-  NXDOMAIN with RA cleared means a policy blocked the query. Use this as a cheap
-  signal when the join fails.
+If the label is ever wanted, read the journal for the rows on screen and no
+further:
 
-Measured volume is about 88 lines an hour, near 2,000 a day. journald rotates,
-so keep the history in your own store.
+```
+journalctl --unit unbound --output json --since ... --until ... --grep "rpz: applied"
+```
 
-A dnstap capture confirms the ratio. In 206 seconds, 606 answers carried 28 with
-the RA bit cleared, which is one blocked answer in 22.
+No table, no service, no retention. It goes blank once journald rotates, which
+is the right way to lose old detail.
+
+Two facts to keep, in case that day comes:
+
+- Anchor any regular expression on the **end** of the line. unbound omits the
+  trigger word for a qname trigger, and adds one token for other trigger types.
+  Anchored at the start, that token shifts every field and the parse still
+  succeeds, quietly wrong.
+- The rule and the question differ in 40 percent of lines, because a feed
+  blocks a parent or a wildcard.
 
 ## 3. The zone files
 

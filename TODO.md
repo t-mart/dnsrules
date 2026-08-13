@@ -76,8 +76,6 @@ case that capture cannot reach, such as a truncated frame.
 A capture stays out of git when it holds real traffic. The tests that need one
 skip without it.
 
-- [ ] Capture `journalctl --unit unbound --output json` lines that cover each
-      RPZ action, and commit them
 - [x] Capture a dnstap framestream to a file
 - [x] Keep the capture out of git. It holds every query the house made during
       the capture window. Tests that need it skip, and pytest runs with `-rs`
@@ -86,17 +84,6 @@ skip without it.
 
 The control socket is the exception. Its protocol is one line of text, so the
 tests already run a real unix socket and assert the bytes on the wire.
-
-## 4. RPZ match log
-
-journald carries these today, so this needs nothing from `mace`.
-
-- [ ] `unbound/journal.py`: follow `journalctl --unit unbound --output json`
-- [ ] Parse with the tested regular expression in the design document
-- [ ] Backfill with `--since` at startup, so a restart loses no window
-- [ ] Tolerate the extra token that non-qname triggers add
-- [ ] Map the zone field to a group and a layer, through `rpz-log-name`
-- [ ] Model and store the matches
 
 ## 5. Query log ingest
 
@@ -114,16 +101,15 @@ dnstap is on, and a capture is in hand.
 - [x] Pair a query with its response, on client, port, name, and type. The key
       repeats, because clients reuse a source port, so each key holds a queue
       and the oldest query takes the next answer
-- [x] Fall back to the in-band signal: NXDOMAIN with the RA bit cleared means a
-      policy blocked it
+- [x] Read blocked from the in-band signal: NXDOMAIN with the RA bit cleared.
+      The journal names the zone as well, and section 2 of the design says why
+      that is not worth another interface
 - [x] `unbound/receiver.py`: listen, and take one connection after another.
       Each connection is its own frame stream, so a restart of unbound never
       looks like a corrupt frame
 - [x] `ingest` management command, batching inserts on a size or a one second
       tick, whichever comes first
 - [x] Skip a frame that does not decode. One bad frame must not end a stream
-- [ ] Join to the RPZ matches on time, client address, and qname, for the zone
-      that acted
 
 ## 6. Query log table
 
