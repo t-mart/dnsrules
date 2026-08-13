@@ -11,7 +11,9 @@ dependencies = [
     "argon2-cffi>=25.1.0",
     "django>=6.1",
     "django-htmx>=1.29.0",
+    "dnspython>=2.8.0",
     "gunicorn>=26.0.0",
+    "protobuf>=7.35.1",
     "psycopg[binary]>=3.3.4",
     "pyyaml>=6.0.3",
     "whitenoise>=6.12.0",
@@ -27,7 +29,6 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "django-tailwind-cli>=4.6.2",
-    "dnspython>=2.8.0",
     "pytest>=9.1.1",
     "pytest-django>=4.14.0",
     "ruff>=0.16.2",
@@ -37,6 +38,8 @@ dev = [
 [tool.ruff]
 target-version = "py314"
 src = ["src"]
+# protoc writes it, `just proto` regenerates it, and nothing here edits it.
+extend-exclude = ["*_pb2.py", "*_pb2.pyi"]
 
 [tool.ruff.lint]
 select = ["B", "DJ", "E", "F", "I", "RUF", "UP"]
@@ -58,6 +61,15 @@ invalid-assignment = "ignore"
 invalid-argument-type = "ignore"
 invalid-return-type = "ignore"
 missing-argument = "ignore"
+
+# protoc writes each enum as `class Type(int, metaclass=EnumTypeWrapper)`, which
+# ty reads as a metaclass conflict. The file is generated, so nothing here fixes
+# it. The stub still types the module, which is why it is not excluded outright.
+[[tool.ty.overrides]]
+include = ["src/dnsrules/unbound/dnstap_pb2.pyi"]
+
+[tool.ty.overrides.rules]
+conflicting-metaclass = "ignore"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dnsrules.settings"

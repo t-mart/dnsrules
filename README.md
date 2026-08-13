@@ -184,6 +184,21 @@ rule as YAML, or as JSON with `--format json`. The group structure lives in the
 mace repository and survives a rebuild. The rules live only in Postgres, so
 commit that export as the backup.
 
+## dnstap
+
+`assets/dnstap.proto` is the schema, taken from the dnstap project by way of the
+unbound source. `just proto` regenerates `dnstap_pb2.py` and `dnstap_pb2.pyi`
+into `src/dnsrules/unbound/`.
+
+Both generated files are committed, for the same reason the stylesheet is:
+`uv tool install git+...` builds a wheel from the git tree and cannot run
+protoc. The stub comes too, because protoc builds the classes at import time and
+a type checker sees nothing without it.
+
+`protobuf` is the runtime the generated code imports. `protoc` is the compiler
+that writes it. They version together: protoc 35.1 emits code that demands the
+7.35.1 Python runtime or newer.
+
 ## Fixtures
 
 The dnstap stream and the RPZ log lines use formats this project does not

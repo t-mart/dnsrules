@@ -105,10 +105,15 @@ dnstap is on, and a capture is in hand.
 - [x] `unbound/framestream.py`: read the frame envelope. Written by hand
       because it is 60 lines of stdlib, and a library would add a dependency
       for that
-- [ ] `unbound/dnstap.py`: decode the protobuf payload. Decide the dependency
-      first: hand-rolled reader, or protobuf plus dnspython
-- [ ] Keep client query and client response messages. Reply time is the gap
-      between them
+- [x] `unbound/dnstap.py`: decode the protobuf payload with `protobuf` and
+      `dnspython`. `assets/dnstap.proto` is the schema, `just proto` generates
+      the module and its stub, and both are committed so an install needs no
+      protoc
+- [x] Keep client query and client response messages only. The resolver and
+      forwarder types carry no client address
+- [ ] Pair a query with its response, on client, port, and qname. Reply time is
+      the gap between them. unbound fills `response_time` only, so one message
+      cannot give it
 - [ ] `ingest` management command, batching inserts on a one second tick
 - [ ] Join to the RPZ matches on time, client address, and qname
 - [ ] Fall back to the in-band signal when the join fails: NXDOMAIN with the RA
@@ -124,7 +129,9 @@ dnstap is on, and a capture is in hand.
 - [ ] Retention: 30 days raw, 13 months of rollups
 - [ ] Nightly job: roll up first, then drop the old partition
 - [ ] Size cap as a backstop, oldest first when it trips
-- [ ] Measure the query rate before you size anything
+- [x] Measure the query rate before you size anything. One 206 second sample
+      gave 608 queries, near 2.9 a second. Call it 250,000 rows a day, so 30
+      days of raw rows is about 7.5 million
 
 ## 7. Dashboard
 
@@ -142,7 +149,8 @@ dnstap is on, and a capture is in hand.
 - [ ] Name each address from `hosts.yml`. A host has several addresses
 - [ ] Read tailnet names from `tailscale status --json` at runtime
 - [ ] Map `127.0.0.1` to `mace`
-- [ ] Mark `10.0.1.0/24` unmanaged. Those hosts get no blocking
+- [ ] Mark `10.0.1.0/24` unmanaged. Those hosts get no blocking. In the first
+      capture they made 51 percent of the traffic, from 3 devices
 - [ ] Show the address when no name is known
 
 ## 9. Packaging and deployment

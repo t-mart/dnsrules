@@ -33,6 +33,12 @@ hosts: var
     EOF
     echo "Wrote var/hosts.yml."
 
+# regenerate the dnstap protobuf module. Needs protoc; the output is committed.
+# The stub comes too: protoc builds the classes at import time, so a type
+# checker sees nothing without it.
+proto:
+    protoc --proto_path=assets --python_out=src/dnsrules/unbound --pyi_out=src/dnsrules/unbound assets/dnstap.proto
+
 # compile the stylesheet
 # --force is required: the up-to-date check reads the source css only, so a
 # template edit alone never triggers a rebuild.
