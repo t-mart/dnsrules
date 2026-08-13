@@ -1,0 +1,23 @@
+# unbound connects out to this listener and retries on its own, so this unit
+# needs no ordering against unbound.service. It writes the query log and
+# nothing else, so it reaches no file of unbound's.
+[Unit]
+Description=Write the dnsrules query log from the unbound dnstap stream
+After=network-online.target dnsrules-migrate.service
+Wants=network-online.target
+Requires=dnsrules-migrate.service
+
+[Service]
+User=dnsrules
+Group=dnsrules
+EnvironmentFile=/etc/dnsrules/dnsrules.env
+ExecStart=/usr/local/bin/dnsrules ingest
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

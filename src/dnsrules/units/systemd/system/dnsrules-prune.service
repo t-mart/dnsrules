@@ -1,0 +1,17 @@
+[Unit]
+Description=Delete the expired dnsrules rules
+After=dnsrules-migrate.service
+Requires=dnsrules-migrate.service
+
+[Service]
+Type=oneshot
+User=dnsrules
+Group=dnsrules
+EnvironmentFile=/etc/dnsrules/dnsrules.env
+ExecStart=/usr/local/bin/dnsrules prune
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+# An expiry rewrites the zone file and reloads the zone, as a rule change does.
+ReadWritePaths=/etc/unbound/rules -/run/unbound

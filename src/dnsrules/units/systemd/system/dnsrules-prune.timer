@@ -1,0 +1,11 @@
+# A temporary rule ends within a minute of its expiry. Django ships no
+# scheduler, and a timer needs no dependency and no extra process.
+[Unit]
+Description=Delete the expired dnsrules rules every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target

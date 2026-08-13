@@ -85,11 +85,11 @@ fix:
     uv run ruff format .
     uv run ruff check --fix .
 
-# build the wheel and confirm it carries the templates and static files
+# build the wheel and confirm it carries the templates, static files, and units
 wheel:
     rm -rf dist
     uv build --wheel
-    unzip -l dist/*.whl | grep -E 'templates/|static/'
+    unzip -l dist/*.whl | grep -E 'templates/|static/|units/'
 
 # print the sha384 of the vendored htmx build
 htmx-hash:

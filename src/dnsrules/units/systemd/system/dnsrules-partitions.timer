@@ -1,0 +1,12 @@
+# The command makes days ahead of the rows that need them, so the hour does
+# not matter. Persistent catches a router that was off at the last run.
+[Unit]
+Description=Keep the dnsrules query log partitions ahead of the rows
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

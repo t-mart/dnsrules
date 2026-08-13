@@ -299,7 +299,95 @@ at a quieter moment if it holds anything you would rather not keep.
 
 ## Deployment
 
-Not written yet. The plan: install with
-`uv tool install git+https://github.com/t-mart/dnsrules.git` on the router, then
-generate the systemd units, the sysusers entry, and the tmpfiles entry from the
-installed binary.
+The router is `mace`. Ansible owns unbound and the hosts file. dnsrules
+installs on top with `uv tool install`, and it brings its own units.
+
+`src/dnsrules/units/` holds them as real files, and that tree mirrors `/etc`.
+The `units` command copies them, and it renders nothing: no unit depends on
+runtime state. Every path inside a unit is fixed by convention. To change one
+on a router, write a drop-in with `systemctl edit`. A drop-in survives the next
+upgrade, and an edited unit does not.
+
+### Install
+
+1. Install the tool where a service user can reach it.
+
+   ```
+   sudo env UV_TOOL_DIR=/usr/local/lib/uv UV_TOOL_BIN_DIR=/usr/local/bin uv tool install git+https://github.com/t-mart/dnsrules.git
+   ```
+
+   Both variables are necessary. Without them the environment lands under
+   `/root`, which the `dnsrules` user cannot read.
+
+2. Put the units in place. Run `dnsrules units` alone first, to see the list.
+
+   ```
+   sudo dnsrules units --output /etc
+   sudo systemd-sysusers
+   sudo systemd-tmpfiles --create
+   sudo systemctl daemon-reload
+   ```
+
+3. Make the environment file. `.env.example` describes every variable.
+
+   ```
+   sudo touch /etc/dnsrules/dnsrules.env
+   sudo chown root:dnsrules /etc/dnsrules/dnsrules.env
+   sudo chmod 640 /etc/dnsrules/dnsrules.env
+   dnsrules secret | sudo tee --append /etc/dnsrules/dnsrules.env
+   sudoedit /etc/dnsrules/dnsrules.env
+   ```
+
+   The file holds the database password and the secret key, so it stays at
+   `640`. `dnsrules secret` prints a line and writes no file, so it cannot
+   replace a key that sessions depend on.
+
+4. Restart unbound. The drop-in gives the control socket to the unbound group,
+   and the `dnsrules` user is a member.
+
+   ```
+   sudo systemctl restart unbound
+   ```
+
+5. Start the services.
+
+   ```
+   sudo systemctl enable --now dnsrules-web dnsrules-ingest
+   sudo systemctl enable --now dnsrules-prune.timer dnsrules-partitions.timer
+   ```
+
+6. Make the first account.
+
+   ```
+   sudo systemd-run --pty --uid=dnsrules --property=EnvironmentFile=/etc/dnsrules/dnsrules.env /usr/local/bin/dnsrules createsuperuser
+   ```
+
+   `systemd-run` gives the command the same environment as the units. `sudo
+   --user` gives it none, so it finds no database.
+
+### Upgrade
+
+```
+sudo env UV_TOOL_DIR=/usr/local/lib/uv UV_TOOL_BIN_DIR=/usr/local/bin uv tool upgrade dnsrules
+sudo dnsrules units --output /etc --force
+sudo systemctl daemon-reload
+sudo systemctl restart dnsrules-migrate dnsrules-web dnsrules-ingest
+```
+
+`dnsrules-migrate` is a oneshot with `RemainAfterExit=yes`, so a restart runs
+the migrations again. The other units order themselves after it, and systemd
+holds that order inside one restart.
+
+### The units
+
+| Unit | Does |
+| --- | --- |
+| `dnsrules-migrate.service` | Applies migrations. Every other unit waits for it |
+| `dnsrules-web.service` | Serves the website through gunicorn |
+| `dnsrules-ingest.service` | Writes the query log from the dnstap stream |
+| `dnsrules-prune.timer` | Deletes expired rules every minute |
+| `dnsrules-partitions.timer` | Keeps the query log partitions ahead, daily |
+
+`dnsrules-web` and `dnsrules-prune` write a zone file and reload a zone. They
+carry `ProtectSystem=strict`, which makes `/etc` read-only, so both list
+`/etc/unbound/rules` in `ReadWritePaths`. The others touch the database alone.

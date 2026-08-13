@@ -1,0 +1,21 @@
+# Every other unit orders itself after this one, so the schema is always
+# current before a process reads the database.
+[Unit]
+Description=Apply the dnsrules database migrations
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=dnsrules
+Group=dnsrules
+EnvironmentFile=/etc/dnsrules/dnsrules.env
+ExecStart=/usr/local/bin/dnsrules migrate --no-input
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

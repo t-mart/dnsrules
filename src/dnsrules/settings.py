@@ -41,6 +41,12 @@ DEBUG = env_bool("DEBUG")
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]")
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 
+# Read by `serve`. Binding every interface is deliberate: the LAN has to reach
+# the site, and nftables decides who does. ALLOWED_HOSTS is the check that
+# matters here, because it stops DNS rebinding.
+BIND = env("BIND", "0.0.0.0:8000")
+WORKERS = int(env("WORKERS", "2"))
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

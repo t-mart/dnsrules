@@ -62,7 +62,7 @@ The write path. It needs Postgres and the `mace` group change.
 - [x] Show a stale group, and say that its rules reach no zone file
 - [x] Show that a membership change needs an Ansible deploy plus
       `unbound-control reload_keep_cache`
-- [ ] Run `prune` from a timer every minute. See section 9
+- [x] Run `prune` from a timer every minute. See section 9
 
 ## 3. Fixtures: capture, never invent
 
@@ -156,35 +156,36 @@ dnstap is on, and a capture is in hand.
 
 ## 9. Packaging and deployment
 
-- [ ] `serve` management command wrapping gunicorn through its Python API
-- [ ] `systemd` management command that prints, and never installs:
-  - [ ] `dnsrules-migrate.service`, oneshot, with `RemainAfterExit=yes`
-  - [ ] `dnsrules-web.service` and `dnsrules-ingest.service`
-  - [ ] `dnsrules-prune.service` and `.timer`, every minute. Django ships no
+- [x] `serve` management command wrapping gunicorn through its Python API
+- [x] Ship the units as real files under `src/dnsrules/units/`, in a tree that
+      mirrors `/etc`. Generating a unit is for units that depend on runtime
+      state, and none of these do. A `units` command copies the tree, and
+      `systemctl edit` covers a router that needs a path changed
+  - [x] `dnsrules-migrate.service`, oneshot, with `RemainAfterExit=yes`
+  - [x] `dnsrules-web.service` and `dnsrules-ingest.service`
+  - [x] `dnsrules-prune.service` and `.timer`, every minute. Django ships no
         scheduler, and a timer needs no dependency and no extra process
-  - [ ] `dnsrules-partitions.service` and `.timer`, daily. It must run days
+  - [x] `dnsrules-partitions.service` and `.timer`, daily. It must run days
         ahead of the rows it serves
-  - [ ] `sysusers.d` entry for the `dnsrules` user, including `m dnsrules unbound`
-  - [ ] `tmpfiles.d` entry for `/etc/dnsrules`
-  - [ ] `unbound.service` drop-in that chmods the control socket
-- [ ] Generate a `SECRET_KEY` into `/etc/dnsrules/dnsrules.env` at install time.
-      More than one web worker needs it
-- [ ] Version from git tags, so `uv tool install` from a branch reports
-      something real
-- [ ] Write the install and upgrade procedure in the README
+  - [x] `sysusers.d` entry for the `dnsrules` user, including `m dnsrules unbound`
+  - [x] `tmpfiles.d` entry for `/etc/dnsrules`
+  - [x] `unbound.service` drop-in that chmods the control socket
+- [x] `secret` command that prints a `SECRET_KEY` line for the environment
+      file. More than one web worker needs the key, so `serve` refuses to start
+      without it
+- [x] Write the install and upgrade procedure in the README
 
 ## Waiting on the mace repo
 
 | Item | Blocks |
 | --- | --- |
 | Define the groups: tags, membership, and two `rpz` blocks each | section 2 |
-| Create `/etc/unbound/rules/`, and each zone file once | section 2 |
+| Create `/etc/unbound/rules/` and each zone file once, group `unbound` and group-writable | section 2 |
 | Render `/etc/dnsrules/hosts.yml` from `vars/hosts.yml` | sections 2 and 8 |
 | Put the networks in `hosts.yml`: the LAN, the DHCP pool, the tailnet | section 8 |
 | List `127.0.0.1` and `::1` among mace's own addresses | section 8 |
 | Remove `dont_block` and the overrides zone | section 2 |
-| Create the user, and grant the socket and the rules directory | section 9 |
-| Open the port in `vars/nftables.yml` | reaching the site at all |
+| Open port 8000 in `vars/nftables.yml` | reaching the site at all |
 
 ## Open questions
 
