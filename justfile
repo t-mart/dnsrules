@@ -10,6 +10,24 @@ dev: var
 manage *ARGS:
     uv run dnsrules {{ ARGS }}
 
+# start a real unbound to test against. It fetches rules from `just dev`.
+unbound:
+    docker build --tag dnsrules-unbound:dev dev
+    -docker rm --force dnsrules-unbound
+    docker run --detach --name dnsrules-unbound --publish 127.0.0.1:8953:8953 --publish 127.0.0.1:5354:53/udp dnsrules-unbound:dev
+
+# stop it
+unbound-stop:
+    -docker rm --force dnsrules-unbound
+
+# run one control command against it, for example `just control status`
+control *ARGS:
+    docker exec dnsrules-unbound unbound-control -c /etc/unbound/unbound.conf {{ ARGS }}
+
+# ask it a question, for example `just dig example.com A`
+dig *ARGS:
+    docker exec dnsrules-unbound dig +noall +comments +answer @127.0.0.1 {{ ARGS }}
+
 # stand in for the router's /etc/unbound, which no development machine has
 var:
     mkdir --parents var
@@ -90,7 +108,3 @@ wheel:
     rm -rf dist
     uv build --wheel
     unzip -l dist/*.whl | grep -E 'templates/|static/|units/'
-
-# print the sha384 of the vendored htmx build
-htmx-hash:
-    openssl dgst -sha384 -binary src/dnsrules/static/dnsrules/htmx.min.js | openssl base64 -A

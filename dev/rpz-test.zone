@@ -1,0 +1,8 @@
+$TTL 3600
+@ SOA localhost. root.localhost. 1 14400 3600 86400 3600
+  NS  localhost.
+
+; Stands in for the privacy blocklist. example.com resolves for real, so an
+; allow rule that beats this zone is visible as a real answer.
+example.com CNAME .
+blocked-parent.example CNAME .
