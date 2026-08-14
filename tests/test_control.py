@@ -3,7 +3,21 @@ import threading
 
 import pytest
 
-from dnsrules.unbound.control import VERSION, ControlError, auth_zone_transfer, command
+from dnsrules.unbound.control import (
+    VERSION,
+    ControlError,
+    auth_zone_transfer,
+    auth_zones,
+    command,
+    parse_auth_zones,
+)
+
+# Real output from unbound 1.26.0. The name carries a trailing dot, and a zone
+# it never fetched says "no serial" rather than zero.
+LIST_AUTH_ZONES = (
+    "test_feed.\tserial 1\t since 1786684178 2026-08-14T05:09:38\n"
+    "runtime_rules.\tno serial\n"
+)
 
 
 class FakeUnbound:
@@ -82,6 +96,23 @@ def test_command_raises_when_unbound_never_answers(unbound):
     server = unbound(reply=None)
     with pytest.raises(ControlError):
         auth_zone_transfer(server.host, server.port, "runtime_rules", timeout=0.2)
+
+
+def test_parse_auth_zones_reads_a_serial_and_the_lack_of_one():
+    assert parse_auth_zones(LIST_AUTH_ZONES) == {"test_feed": 1, "runtime_rules": None}
+
+
+def test_parse_auth_zones_of_a_resolver_holding_nothing():
+    assert parse_auth_zones("") == {}
+
+
+def test_auth_zones_sends_the_protocol_line(unbound):
+    server = unbound(LIST_AUTH_ZONES)
+    assert auth_zones(server.host, server.port) == {
+        "test_feed": 1,
+        "runtime_rules": None,
+    }
+    assert server.received == f"{VERSION} list_auth_zones\n"
 
 
 def test_command_refuses_a_newline_before_it_connects(closed_port):

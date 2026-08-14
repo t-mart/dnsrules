@@ -9,6 +9,7 @@ by one statement, so two workers that save at once both converge.
 """
 
 import logging
+import time
 
 from django.conf import settings
 from django.db.models import F
@@ -17,6 +18,11 @@ from dnsrules.rules.models import Group, Rule
 from dnsrules.unbound import control, zone
 
 logger = logging.getLogger(__name__)
+
+# How long to wait for unbound to hold the serial it was just told about, and
+# how often to ask. The job runs in a worker, so the page never waits on this.
+CONFIRM_FOR = 2.0
+CONFIRM_EVERY = 0.05
 
 
 def zone_text(group: Group) -> str:
@@ -33,23 +39,72 @@ def zone_text(group: Group) -> str:
     return zone.render(records, group.serial)  # ty: ignore[invalid-argument-type]
 
 
-def reconcile() -> list[str]:
-    """Raise every serial, then tell unbound to fetch each zone again.
+def _behind(expected: dict[str, int]) -> list[str]:
+    """Name each zone unbound does not hold at the serial it should.
 
-    Returns the zone names it asked for.
+    A zone ahead of the expected serial is not behind. Two changes in a row
+    can leave unbound holding the later one, and that one carries this change.
+    """
+    held = control.auth_zones(
+        settings.UNBOUND_CONTROL_HOST, settings.UNBOUND_CONTROL_PORT
+    )
+    problems = []
+    for name, serial in expected.items():
+        if name not in held:
+            problems.append(f"unbound has no zone {name}")
+            continue
+        got = held[name]
+        if got is None:
+            problems.append(f"unbound has never fetched {name}")
+        elif got < serial:
+            problems.append(f"unbound holds {name} at serial {got}, not {serial}")
+    return problems
+
+
+def confirm(
+    expected: dict[str, int],
+    *,
+    timeout: float = CONFIRM_FOR,
+    interval: float = CONFIRM_EVERY,
+    clock=time.monotonic,
+    sleep=time.sleep,
+) -> list[str]:
+    """Wait for unbound to hold each serial. Returns what it never took.
+
+    The transfer command answers before it fetches, so the first read can be
+    honestly early. Measured against 1.26.0 the serial arrives in about 30 ms,
+    and the timeout is far longer because a false alarm is worse than a wait.
+    """
+    deadline = clock() + timeout
+    while True:
+        problems = _behind(expected)
+        if not problems or clock() >= deadline:
+            return problems
+        sleep(interval)
+
+
+def reconcile() -> list[str]:
+    """Raise every serial, tell unbound to fetch, then check that it did.
+
+    Returns the zone names it asked for, and raises when unbound does not
+    hold them.
 
     Call this after the transaction that changed the rules has committed. A
     failed transfer then reports an error without losing the change, and
     unbound refetches on its own within the SOA refresh interval.
     """
     Group.objects.update(serial=F("serial") + 1)
-    asked = []
-    for group in Group.objects.all():
+    groups = list(Group.objects.all())
+    for group in groups:
         control.auth_zone_transfer(
             settings.UNBOUND_CONTROL_HOST, settings.UNBOUND_CONTROL_PORT, group.zone
         )
-        asked.append(group.zone)
-    return asked
+    # The transfer reply means nothing, so ask unbound what it holds. This is
+    # the only thing that tells a rule that landed from one that did not.
+    problems = confirm({group.zone: group.serial for group in groups})
+    if problems:
+        raise control.ControlError("; ".join(problems))
+    return [group.zone for group in groups]
 
 
 def prune() -> int:

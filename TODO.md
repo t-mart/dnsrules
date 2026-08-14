@@ -41,6 +41,10 @@ upgrade, and add a check for each new question.
 - A removed allow takes effect at once, even while the real answer is cached.
 - `auth_zone_transfer` refetches on demand. A serial that does not rise leaves
   unbound with what it already has.
+- `auth_zone_transfer` answers "ok" before it fetches, and answers "ok" when the
+  fetch fails. The reply carries no information. `list_auth_zones` reports the
+  serial unbound holds, or "no serial" for a zone it never fetched, and the new
+  serial lands about 30 ms after the transfer.
 - An RPZ block clears the RA bit only where `rpz-signal-nxdomain-ra: yes` is set.
   `CNAME *.` answers NOERROR, which no rcode tells apart from an empty answer.
 - unbound holds 430k local zones in 141 MB and answers from them in 0 ms, but a
@@ -61,6 +65,8 @@ the resolver, and an allow rule beat the feed.
       `auth_zone_transfer`.
 - [x] Trigger a transfer after a rule change. Report a failure on the rules
       page, and say that the rule is saved and lands at the next refresh.
+- [x] Confirm it. The transfer reply says "ok" either way, so read the serial
+      back with `list_auth_zones` and compare it against the published one.
 - [x] Keep the domain validator and the fixed right-hand-side table.
 - [x] Delete the zone file writer, `DNSRULES_ZONE_MODE`, and their tests.
 - [ ] Add `use-application-dns.net` as a block-with-no-data rule, by hand, once
@@ -190,6 +196,20 @@ Measured on 250,000 rows, the day window costs seven statements and 0.24 s.
 Per-client rules need unbound views, and a view is configuration, so Ansible
 defines it. Each group then needs its own RPZ zone and its own URL. Nothing here
 starts until one rule set for the house is not enough.
+
+Nothing tells dnsrules which group a client is in, and nothing will:
+
+- dnstap carries no view, no tag, and no group. Measured on 1214 messages from
+  mace: no `policy`, no `query_zone`, no `extra`, no `identity`. unbound fills
+  none of them, so there is nothing to read.
+- Remote control answers `get_option define-tag` and `get_option
+  access-control`, but `get_option access-control-tag` comes back empty with
+  entries configured, and `get_option view` is an unknown option. There is no
+  command that lists views or maps a client to a tag.
+
+So membership stays with unbound, in Ansible, and dnsrules needs the zone name
+and nothing else. If the group control ever wants a default, that is a label on
+the client with the standing of a name, never an input to policy.
 
 ## What mace must do
 

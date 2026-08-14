@@ -16,6 +16,10 @@ def transfers(monkeypatch):
     """Record each auth_zone_transfer rather than reach a real resolver.
 
     Returns the list of zone names, in call order.
+
+    `auth_zones` answers as a resolver that took every transfer, because
+    reconcile reads the serial back to confirm one landed. A test that wants a
+    resolver which did not take it overrides this.
     """
     calls = []
 
@@ -23,7 +27,11 @@ def transfers(monkeypatch):
         calls.append(zone)
         return "ok\n"
 
+    def held(host, port, **kwargs):
+        return {group.zone: group.serial for group in Group.objects.all()}
+
     monkeypatch.setattr(services.control, "auth_zone_transfer", record)
+    monkeypatch.setattr(services.control, "auth_zones", held)
     return calls
 
 

@@ -113,6 +113,15 @@ A rule change sets the transfer job due. The worker raises the serial and sends
 refetches at once. RPZ is applied before the cache, so a removed rule takes
 effect even while the old answer is still cached.
 
+That reply proves nothing. unbound answers `ok` before it fetches, and it
+answers `ok` when the fetch fails outright. So the worker reads the serial back
+with `list_auth_zones` and compares it against the one it published. That is
+the only thing that separates a rule which landed from one which did not, and
+it also catches a zone name that this and `unbound.conf` spell differently.
+
+The serial arrives about 30 ms after the transfer, so the check waits for it.
+The wait is in the worker, never in a request.
+
 One process talks to unbound, so a slow or unreachable resolver never holds up a
 page. The website reports what the last transfer did and moves on.
 
