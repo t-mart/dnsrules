@@ -125,7 +125,7 @@ process.
 | --- | --- | --- |
 | `transfer` | 1 hour | Raises the serials and tells unbound |
 | `prune` | 1 minute | Deletes expired rules |
-| `retention` | 1 day | Archives the query log and moves its partitions on |
+| `retention` | 1 day | Deletes query rows past 30 days |
 
 A worker claims the next due row with `FOR UPDATE SKIP LOCKED` and holds that
 lock until the job returns, so a second worker takes the next job rather than
@@ -181,8 +181,10 @@ query takes the next answer.
 row. Block or allow a name from the row that shows it, for an hour or for good.
 A second click replaces the first rule rather than adding a second one.
 
-Rows live 30 days. Measured on one sample, the house makes about 250,000 queries
-a day, so that is near 7.5 million rows.
+Rows live 30 days, in one table, and the retention job deletes the rest.
+Measured on one sample, the house makes about 250,000 queries a day, so that is
+near 7.5 million rows. Postgres does not notice that many, and `at` carries a
+BRIN index because the rows arrive in time order.
 
 ## dnstap
 

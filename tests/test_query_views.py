@@ -3,7 +3,6 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from dnsrules.queries import partitions
 from dnsrules.queries.models import Query
 from dnsrules.rules import services
 from dnsrules.rules.models import Group, Rule, Source
@@ -23,8 +22,6 @@ def admin(client, django_user_model):
 
 @pytest.fixture
 def logged(zone_settings):
-    """Rows for today, so they land in a partition rather than the default one."""
-    partitions.reconcile(timezone.now().date(), ahead=0, keep=3650)
     now = timezone.now()
     Query.objects.create(
         at=now,

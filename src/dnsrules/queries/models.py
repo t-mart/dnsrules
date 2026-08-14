@@ -1,16 +1,15 @@
 """The query log: one row for each question a client asked.
 
-The table is partitioned by day. Migration 0001 writes the DDL by hand, because
-Django models no part of declarative partitioning. Two consequences worth
-knowing:
+One table, and a DELETE past the retention window. The house makes about
+250,000 queries a day, so 30 days is near 7.5 million rows. Postgres does not
+notice that, and an archive that holds less than the thing it archives is not
+worth the code.
 
-- The primary key is `(at, id)`. Postgres demands the partition key inside
-  every unique constraint. Django still treats `id` as the primary key, which
-  works, because nothing here updates a row by primary key.
-- Retention drops a partition rather than deleting rows. A DROP is instant and
-  leaves nothing to vacuum.
+The rows arrive in time order, so `at` carries a BRIN index. It costs a
+fraction of what a btree would take at this row count.
 """
 
+from django.contrib.postgres.indexes import BrinIndex
 from django.db import models
 
 from dnsrules.unbound.domain import MAX_LENGTH
@@ -34,71 +33,12 @@ class Query(models.Model):
     class Meta:
         ordering = ["-at"]
         verbose_name_plural = "queries"
+        indexes = [
+            BrinIndex(fields=["at"], name="queries_query_at_brin"),
+            # The log table filters on both of these.
+            models.Index(fields=["qname"], name="queries_query_qname"),
+            models.Index(fields=["client"], name="queries_query_client"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.qname} {self.qtype}"
-
-
-class Hour(models.Model):
-    """One hour of one client's traffic, blocked or not, and how many.
-
-    It carries no name, and that is the whole point. Measured on a real
-    capture, an hourly rollup keyed on the name holds near 1,600 rows an hour,
-    which is 15 million rows over 13 months. The raw table it replaces holds
-    7.5 million. An archive that costs twice the thing it archives is not one.
-
-    Without the name it holds one row for each client and each outcome, near
-    600 a day. `Top` keeps the names that are worth keeping.
-    """
-
-    # The hour it covers, at its start.
-    at = models.DateTimeField()
-    client = models.GenericIPAddressField()
-    blocked = models.BooleanField()
-    count = models.PositiveIntegerField()
-
-    objects = models.Manager()
-
-    class Meta:
-        ordering = ["-at"]
-        constraints = [
-            # The rollup upserts on this, and it indexes `at` for retention.
-            models.UniqueConstraint(
-                fields=["at", "client", "blocked"],
-                name="one_row_per_client_per_hour",
-            )
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.client} {self.at:%Y-%m-%d %H}h"
-
-
-class Top(models.Model):
-    """The names asked for most on one day, blocked and allowed apart.
-
-    The tail is what makes an archive expensive, and it is also the part
-    nobody reads. In one capture, 608 queries held 162 names, and the top 50
-    covered 64 percent of them. So this keeps a head and drops the tail.
-
-    The last 30 days need none of this. Raw rows answer any question about
-    them, down to the client and the second.
-    """
-
-    # The local day it covers. TIME_ZONE decides where a day starts.
-    at = models.DateField()
-    qname = models.CharField(max_length=MAX_LENGTH)
-    blocked = models.BooleanField()
-    count = models.PositiveIntegerField()
-
-    objects = models.Manager()
-
-    class Meta:
-        ordering = ["-at", "-count"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["at", "qname", "blocked"], name="one_row_per_name_per_day"
-            )
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.qname} {self.at}"

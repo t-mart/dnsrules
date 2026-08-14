@@ -8,11 +8,11 @@ answer, never the whole stream.
 import logging
 import time
 from collections.abc import Iterable, Iterator
+from datetime import timedelta
 
-from django.conf import settings
 from django.db import OperationalError, connection
+from django.utils import timezone
 
-from dnsrules.queries import partitions, rollups
 from dnsrules.queries.models import Query
 from dnsrules.unbound import framestream, receiver
 from dnsrules.unbound.dnstap import Exchange, InvalidMessage, Record, decode, pair
@@ -22,38 +22,18 @@ logger = logging.getLogger(__name__)
 
 BATCH = 500
 INTERVAL = 1.0
+KEEP = timedelta(days=30)
 
 
-def retention() -> None:
-    """Archive the finished hours and days, then move the partitions on.
+def retention(keep: timedelta = KEEP) -> int:
+    """Delete the rows past the retention window. Returns the count.
 
-    Order matters. A rollup that fails must leave the day it had not read yet,
-    so nothing here drops a partition before the archive holds it.
+    One statement. The BRIN index on `at` finds the range, and the rows are
+    contiguous on disk, so there is nothing here worth optimising.
     """
-    hours, days, dropped = rollups.reconcile()
-    logger.info(
-        "Rolled %d hourly and %d daily rows, and dropped %d past their months.",
-        hours,
-        days,
-        dropped,
-    )
-    added, gone = partitions.reconcile()
-    logger.info("Added %d partitions and dropped %d.", len(added), len(gone))
-    over = partitions.enforce_cap(settings.LOG_MAX_BYTES)
-    if over:
-        logger.warning(
-            "%d days went early, from %s to %s, because the log passed its cap.",
-            len(over),
-            over[0],
-            over[-1],
-        )
-    stray = partitions.default_rows()
-    if stray:
-        logger.warning(
-            "%d rows sit in the DEFAULT partition. Their day had no partition "
-            "when they arrived, and it can no longer take one.",
-            stray,
-        )
+    count, _ = Query.objects.filter(at__lt=timezone.now() - keep).delete()
+    logger.info("Deleted %d query rows older than %s.", count, keep)
+    return count
 
 
 def _records(frames: Iterable[bytes]) -> Iterator[Record]:
@@ -125,9 +105,6 @@ def listen(host: str, port: int) -> None:
     unbound connects out and reconnects on its own, so this never gives up on
     a stream that ended badly.
     """
-    # Insurance. The retention job makes the partitions, and a missed run would
-    # send every row to the DEFAULT partition.
-    partitions.reconcile()
     for chunks in receiver.connections(host, port):
         try:
             written = ingest(chunks)

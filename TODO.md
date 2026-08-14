@@ -91,14 +91,13 @@ clients outside it. Phase 9 adds the tags that make a group mean something.
 
 ## 3. Scrap the archive
 
-- [ ] Drop `queries_hour` and `queries_top`, `rollups.py`, and `partitions.py`.
-- [ ] Drop the `rollup` and `partitions` commands, and their tests.
-- [ ] One unpartitioned table. Keep the BRIN index on the timestamp.
-- [ ] `queries.services.retention` becomes one DELETE past 30 days. The job is
-      wired already, so only its body changes.
-- [ ] Drop `DNSRULES_LOG_MAX_BYTES`.
-- [ ] Delete the migrations and generate one initial per app. The hand written
-      partition SQL goes with them.
+- [x] Drop `queries_hour` and `queries_top`, `rollups.py`, and `partitions.py`.
+- [x] Drop the `rollup` and `partitions` commands, and their tests.
+- [x] One unpartitioned table, with the BRIN index declared on the model.
+- [x] `queries.services.retention` is one DELETE past 30 days.
+- [x] Drop `DNSRULES_LOG_MAX_BYTES`.
+- [x] Delete the migrations and generate one initial per app. The hand written
+      partition SQL went with them.
 
 ## 4. Mark a row blocked
 

@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    # For the BRIN index on the query log.
+    "django.contrib.postgres",
     "whitenoise.runserver_nostatic",
     "django.contrib.staticfiles",
     "django_htmx",
@@ -123,11 +125,6 @@ def env_path(name: str, default: str) -> Path:
 # Ansible renders hosts.yml at deploy time. It carries the groups and their
 # unbound zone names.
 HOSTS_PATH = env_path("HOSTS_PATH", "/etc/dnsrules/hosts.yml")
-
-# A backstop under the 30 day retention, not a schedule. 30 days of raw rows
-# is near 7.5 million, which measures around 2 GiB with its indexes. The cap
-# trips only if the traffic is not what that assumed.
-LOG_MAX_BYTES = int(env("LOG_MAX_BYTES", str(4 * 1024**3)))
 
 # unbound connects out to this address, so dnsrules listens on it. Loopback
 # only: the stream is every DNS query in the house.
