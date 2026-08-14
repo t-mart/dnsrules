@@ -21,7 +21,8 @@ ingest:
 manage *ARGS:
     uv run dnsrules {{ ARGS }}
 
-# start a real unbound to test against. It fetches rules from `just dev`.
+# start a real unbound to test against. It fetches rules from `just dev` on
+# the host, across the docker bridge.
 unbound:
     docker build --tag dnsrules-unbound:dev dev
     -docker rm --force dnsrules-unbound
@@ -30,6 +31,14 @@ unbound:
 # stop it
 unbound-stop:
     -docker rm --force dnsrules-unbound
+
+# run the whole thing in containers, the way the router does
+up:
+    docker compose up --build --detach
+
+# stop that
+down:
+    docker compose down
 
 # run one control command against it, for example `just control status`
 control *ARGS:

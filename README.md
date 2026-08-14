@@ -119,6 +119,30 @@ page. The website reports what the last transfer did and moves on.
 The trigger is an optimisation, not the mechanism. A lost trigger costs one SOA
 refresh interval, and never correctness.
 
+## Containers
+
+```
+just up
+just down
+```
+
+`compose.yaml` runs both halves: one dnsrules container and one unbound. Only
+the website reaches beyond loopback, and the two containers talk on a private
+network. Postgres is not there, because it lives on another host in development
+and on the router in production. `.env` names it.
+
+The addresses in `compose.yaml` are fixed on purpose. `dnstap-ip` takes no
+hostname, and a resolver cannot use DNS to find the thing that configures it.
+`dev/entrypoint.sh` substitutes that one address at start, so the same unbound
+image serves both `just unbound` and the compose stack.
+
+A container cannot reach the host resolver at `127.0.0.53`, and the database
+answers to a tailnet name. `COMPOSE_DNS` names the resolver to use instead, and
+it defaults to tailscale MagicDNS.
+
+`serve` applies the migrations before it serves, so a deploy is a pull and a
+restart.
+
 ## Jobs
 
 Three recurring jobs, in one Postgres table. There is no broker and no second

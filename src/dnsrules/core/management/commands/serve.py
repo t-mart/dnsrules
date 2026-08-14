@@ -17,8 +17,10 @@ import threading
 from argparse import ArgumentParser
 
 from django.conf import settings
+from django.core.management import call_command
 from django.core.management.base import BaseCommand
 from django.core.wsgi import get_wsgi_application
+from django.db import connections
 from gunicorn.app.base import BaseApplication
 
 from dnsrules.core import jobs
@@ -64,6 +66,11 @@ class Command(BaseCommand):
         parser.add_argument("--threads", type=int, default=THREADS)
 
     def handle(self, *args, **options) -> None:
+        call_command("migrate", no_input=True)
+        # The migration opened a connection. gunicorn forks after this, and two
+        # processes sharing one connection corrupt the protocol, so close it
+        # here and let each thread open its own.
+        connections.close_all()
         Application(
             {
                 "bind": options["bind"],

@@ -1,0 +1,53 @@
+# Both halves, in one command. Postgres is not here: it lives on another host
+# in development and on the router in production, and `.env` names it.
+#
+# The addresses are fixed. unbound cannot use DNS to find dnsrules, because
+# `dnstap-ip` takes no hostname and a resolver cannot resolve its own control
+# plane. So the network carries a subnet and each service takes an address in it.
+
+name: dnsrules
+
+networks:
+  dnsrules:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+services:
+  dnsrules:
+    build: .
+    env_file: .env
+    environment:
+      # The dnstap stream arrives from the other container, so loopback is not
+      # enough here. The compose network is private, and no port is published.
+      DNSRULES_DNSTAP_HOST: 0.0.0.0
+      DNSRULES_CONTROL_HOST: 172.28.0.3
+      DNSRULES_ALLOWED_HOSTS: localhost,127.0.0.1,[::1],172.28.0.2
+    # The database answers to a tailnet name, and a container cannot reach the
+    # host resolver at 127.0.0.53. MagicDNS answers from anywhere on the
+    # tailnet, so it is the default. Set COMPOSE_DNS to use another resolver.
+    dns:
+      - ${COMPOSE_DNS:-100.100.100.100}
+    networks:
+      dnsrules:
+        ipv4_address: 172.28.0.2
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  unbound:
+    build: dev
+    # The same name either way, so `just control` and `just dig` reach it
+    # whether it came from compose or from `just unbound`.
+    container_name: dnsrules-unbound
+    environment:
+      DNSRULES_IP: 172.28.0.2
+    networks:
+      dnsrules:
+        ipv4_address: 172.28.0.3
+    ports:
+      # Plain text control, so loopback only. Anyone who reaches 8953 owns the
+      # resolver.
+      - "127.0.0.1:5354:53/udp"
+      - "127.0.0.1:8953:8953"
+    restart: unless-stopped

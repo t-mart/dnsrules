@@ -1,0 +1,13 @@
+.git
+.venv
+.env
+.pytest_cache
+.ruff_cache
+__pycache__
+*.pyc
+dist
+build
+tests/fixtures/dnstap.fstrm
+
+# A whole unbound source tree, kept for reading. It is not part of the build.
+unbound-checkout

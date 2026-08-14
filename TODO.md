@@ -147,9 +147,22 @@ only if the question comes up in use.
 
 ## 7. Docker
 
-- [ ] One image, one process. Development still runs without it.
-- [ ] Reach unbound over the compose network, never over `0.0.0.0`.
-- [ ] Fold `dev/` into the compose file, so one command brings up both.
+- [x] One image, one process. `just dev` still runs without it.
+- [x] `compose.yaml` brings up both halves. `just up` and `just down`.
+- [x] No port reaches beyond loopback, and the two containers talk on a private
+      network.
+- [x] `serve` migrates at startup, so a deploy needs no separate step.
+
+The addresses in `compose.yaml` are fixed, and they have to be. `dnstap-ip`
+takes no hostname, and a resolver cannot use DNS to find its own control plane.
+`dev/entrypoint.sh` substitutes the one address unbound needs, so the same image
+serves `just unbound` and the compose stack.
+
+Still to do:
+
+- [ ] Decide where the image is published, and how the router pulls it.
+- [ ] A healthcheck for each service.
+- [ ] Run as a user other than root.
 
 ## 8. Dashboard
 
