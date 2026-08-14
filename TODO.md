@@ -169,13 +169,17 @@ Done. `/` counts the rows the log lists.
 
 - [x] Top blocked and top asked for over a window, as CSS bars.
 - [x] Client breakdown, with the stopped part of each client in its bar.
-- [x] Queries over time, one column for each bucket. The empty buckets are
-      drawn, so a quiet hour reads as quiet and not as absent.
+- [x] Queries over time, as a stacked Chart.js bar chart with axes and
+      tooltips. The empty buckets are drawn, so a quiet hour reads as quiet and
+      not as absent.
 - [x] Each bar links into the log, with the same window.
-- [x] No chart library. Every chart here is a count against a count, which is a
-      percentage, and CSS draws a percentage. So the whole panel swaps, and
-      nothing needs `htmx.onLoad()`. Adding a library later is easy; removing
-      one is not.
+- [x] Chart.js from a CDN, pinned to its hash, on this page alone. Take the UMD
+      build: `chart.min.js` is an ES module and a plain script tag stops on its
+      first import. The tables stay CSS, because a percentage needs no library.
+- [x] The whole panel swaps, canvas included. `charts.js` redraws from
+      `htmx.onLoad` and destroys the old chart. htmx processes the document as
+      soon as it runs, before a later deferred script, so the first draw is a
+      direct call.
 
 The window is bounded, 15 minutes to a week. "Everything" is not offered: one
 load is four aggregates, and they run against the table the ingest writes.

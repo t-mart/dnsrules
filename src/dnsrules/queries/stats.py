@@ -18,7 +18,9 @@ from dnsrules.queries.models import Client, Query
 
 TOP = 10
 STEPS = {"minute": timedelta(minutes=1), "hour": timedelta(hours=1)}
-LABEL = "%a %H:%M"
+# A tick has room for a time. A tooltip has room for the day it fell on.
+TICK = "%H:%M"
+STAMPS = {"minute": "%a %H:%M", "hour": "%a %d %b %H:%M"}
 BLOCKED = ~Q(blocked_by="")
 
 
@@ -109,8 +111,11 @@ def _floor(moment: datetime, kind: str) -> datetime:
     return local.replace(second=0, microsecond=0)
 
 
-def timeline(since: datetime, kind: str, *, now: datetime | None = None) -> list[Bar]:
-    """One bar for each bucket in the window, oldest first.
+def timeline(since: datetime, kind: str, *, now: datetime | None = None) -> dict:
+    """Every bucket in the window, oldest first, in the shape the chart reads.
+
+    The two series stack, so `allowed` is what was not stopped rather than the
+    whole bucket. Adding the parts is the chart's job.
 
     The database returns no row for a quiet bucket. A chart that skipped those
     would draw a silent hour as if it never happened, so they are made here.
@@ -123,17 +128,15 @@ def timeline(since: datetime, kind: str, *, now: datetime | None = None) -> list
         .annotate(count=Count("pk"), blocked=Count("pk", filter=BLOCKED))
         .order_by("bucket")
     }
-    bars = []
+    data = {"labels": [], "stamps": [], "allowed": [], "blocked": []}
     moment = _floor(since, kind)
     end = timezone.localtime(now or timezone.now())
     while moment <= end:
         row = counted.get(moment)
-        bars.append(
-            Bar(
-                label=moment.strftime(LABEL),
-                count=row["count"] if row else 0,
-                blocked=row["blocked"] if row else 0,
-            )
-        )
+        stopped = row["blocked"] if row else 0
+        data["labels"].append(moment.strftime(TICK))
+        data["stamps"].append(moment.strftime(STAMPS[kind]))
+        data["blocked"].append(stopped)
+        data["allowed"].append((row["count"] if row else 0) - stopped)
         moment += STEPS[kind]
-    return _scaled(bars)
+    return data

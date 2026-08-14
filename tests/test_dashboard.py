@@ -81,19 +81,33 @@ def test_a_named_client_shows_its_name(counted, since):
     assert stats.clients(since)[0].label == "clove"
 
 
-def test_the_timeline_has_a_bar_for_each_quiet_bucket(counted, since):
+def test_the_timeline_has_a_bucket_for_each_quiet_hour(counted, since):
     """A chart that skipped them would draw a silent hour as if it never was."""
-    bars = stats.timeline(since, "hour")
+    data = stats.timeline(since, "hour")
 
-    assert len(bars) == 25
-    assert bars[-1].count == 11
-    assert [bar.count for bar in bars].count(0) == 24
+    assert len(data["labels"]) == 25
+    assert data["allowed"][-1] == 5
+    assert data["blocked"][-1] == 6
+    assert data["allowed"].count(0) == 24
+
+
+def test_the_two_series_stack_rather_than_overlap(counted, since):
+    """Chart.js adds them, so a blocked query must be in one series only."""
+    data = stats.timeline(since, "hour")
+    assert sum(data["allowed"]) == 5
+    assert sum(data["blocked"]) == 6
 
 
 def test_the_timeline_holds_every_row_in_the_window(counted):
     week = stats.timeline(timezone.now() - timedelta(days=7), "hour")
-    assert sum(bar.count for bar in week) == 16
-    assert sum(bar.blocked for bar in week) == 6
+    assert sum(week["allowed"]) + sum(week["blocked"]) == 16
+
+
+def test_a_tooltip_names_the_day_and_a_tick_names_the_time(counted, since):
+    data = stats.timeline(since, "hour")
+    assert data["labels"][-1].count(":") == 1
+    assert data["stamps"][-1].endswith(data["labels"][-1])
+    assert len(data["stamps"][-1]) > len(data["labels"][-1])
 
 
 def test_the_dashboard_counts_the_default_window(client, admin, counted):
@@ -125,3 +139,28 @@ def test_an_htmx_request_answers_with_the_panel_alone(client, admin, counted):
     body = client.get("/", **HTMX).content.decode()
     assert 'id="summary"' in body
     assert "<html" not in body
+
+
+def test_the_swapped_panel_carries_the_canvas_and_its_data(client, admin, counted):
+    """The chart is inside the swap, so a swap has to bring both."""
+    body = client.get("/", {"window": "1h"}, **HTMX).content.decode()
+
+    assert 'id="timeline"' in body
+    payload = body[body.index('id="timeline-data"') :]
+    assert '"blocked": [' in payload
+    assert '"stamps": [' in payload
+
+
+def test_the_chart_library_is_pinned_to_its_hash(client, admin, counted):
+    """It comes from a CDN, so the page states what it will accept."""
+    body = client.get("/").content.decode()
+    assert "cdnjs.cloudflare.com" in body
+    assert 'integrity="sha512-' in body
+    assert 'crossorigin="anonymous"' in body
+    # The UMD build. chart.min.js is an ES module, and a script tag stops on
+    # its first import statement.
+    assert "chart.umd.min.js" in body
+
+
+def test_the_chart_script_is_served(client):
+    assert client.get("/static/dnsrules/charts.js").status_code == 200

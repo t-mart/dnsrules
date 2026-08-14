@@ -252,28 +252,8 @@ td.bar > span > span {
   background: var(--bad-line);
 }
 
-/* One column for each bucket, growing from the bottom. */
+/* Chart.js draws into a canvas, and it sizes the canvas to this box. */
 .chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 1px;
-  height: 8rem;
-}
-
-.chart > div {
-  display: flex;
-  align-items: flex-end;
-  flex: 1 1 0;
-  height: 100%;
-}
-
-.chart > div > span {
-  width: 100%;
-  background: var(--bar);
-}
-
-.chart > div > span > span {
-  display: block;
-  width: 100%;
-  background: var(--bad-line);
+  position: relative;
+  height: 14rem;
 }

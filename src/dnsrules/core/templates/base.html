@@ -11,6 +11,7 @@
     <title>{% block title %}dnsrules{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'dnsrules/app.css' %}">
     <script src="{% static 'dnsrules/htmx.min.js' %}" defer></script>
+    {% block scripts %}{% endblock %}
   </head>
   {# htmx 4 makes inheritance explicit, so the CSRF header needs :inherited. #}
   <body hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>

@@ -123,23 +123,23 @@ def index(request: Request) -> HttpResponse:
 def dashboard(request: Request) -> HttpResponse:
     """The same rows as the log, counted rather than listed.
 
-    Every chart is a percentage, so CSS draws it and the whole panel swaps.
-    Nothing here is built by a script that a swap would have to rebuild.
+    The whole panel swaps, chart included. The timeline goes out as JSON for
+    Chart.js, and the tables are bars that CSS draws from a percentage.
     """
     window = request.GET.get("window", "").strip()
     if window not in PERIODS:
         window = DEFAULT_PERIOD
     span, kind = PERIODS[window]
     since = timezone.now() - span
-    bars = stats.timeline(since, kind)
+    over_time = stats.timeline(since, kind)
     # The window bounds the buckets, so the chart already holds the totals.
-    total = sum(bar.count for bar in bars)
-    stopped = sum(bar.blocked for bar in bars)
+    stopped = sum(over_time["blocked"])
+    total = sum(over_time["allowed"]) + stopped
     context = {
         "window": window,
         "periods": PERIOD_CHOICES,
         "since": since,
-        "timeline": bars,
+        "timeline": over_time,
         "blocked": stats.top(since, blocked=True),
         "allowed": stats.top(since, blocked=False),
         "clients": stats.clients(since),

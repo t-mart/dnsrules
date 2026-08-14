@@ -232,9 +232,23 @@ Run `just probe` next to `just unbound` to see the flags for yourself.
 most, and a breakdown by client. Each bar links into the log with the window it
 was drawn for, so a name in a chart is one click from its rows.
 
-There is no chart library. A bar is one count against the largest count, which
-is a percentage, and CSS draws a percentage. Nothing is built by a script, so
-the whole panel swaps like every other panel here.
+The timeline is Chart.js from a CDN, pinned to its hash. It is the one thing
+this project loads from the network, and only on this page. htmx is vendored
+instead, because the rules panel has to work when DNS is broken. A chart that
+does not draw costs a chart, and `charts.js` says so in the page.
+
+Take the UMD build, `chart.umd.min.js`. The `chart.min.js` that cdnjs offers
+first is an ES module, and a plain script tag stops on its first import
+statement.
+
+The tables are bars, and they are CSS. A bar is one count against the largest
+count, which is a percentage, and a percentage needs no library.
+
+htmx replaces the whole panel, canvas included. `charts.js` draws the new one
+from `htmx:after:process` and destroys the old chart, because Chart.js holds
+the canvas it drew into until it is told otherwise. htmx processes the document
+as soon as it runs, which is before a later deferred script runs, so the first
+chart is drawn by a direct call and not by that callback.
 
 A quiet bucket has no row in the database. The empty buckets are made in
 Python, because a chart that skipped them would draw a silent hour as if it

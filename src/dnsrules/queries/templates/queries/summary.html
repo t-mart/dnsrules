@@ -1,7 +1,7 @@
 {% comment %}
   Target and swap are declared once, with :inherited, and they reach
-  descendants only. The whole panel swaps, because every chart here is drawn by
-  CSS and there is nothing for a script to rebuild.
+  descendants only. The whole panel swaps, canvas included, and charts.js draws
+  the new one from the htmx:after:process event.
 {% endcomment %}
 <div id="summary"
      class="stack"
@@ -23,17 +23,14 @@
     </p>
   </form>
 
+  {% comment %}
+    The data goes out as JSON rather than as markup. htmx rebuilds a swapped
+    script tag with its attributes, so this stays inert data and keeps its id.
+  {% endcomment %}
   <section>
     <h2>Queries over time</h2>
-    <div class="chart">
-      {% for bar in timeline %}
-        <div title="{{ bar.label }}: {{ bar.count }} queries, {{ bar.blocked }} blocked">
-          <span style="height: {{ bar.share|stringformat:'.2f' }}%">
-            {% if bar.blocked %}<span style="height: {{ bar.blocked_share|stringformat:'.2f' }}%"></span>{% endif %}
-          </span>
-        </div>
-      {% endfor %}
-    </div>
+    <div class="chart"><canvas id="timeline"></canvas></div>
+    {{ timeline|json_script:"timeline-data" }}
   </section>
 
   <div class="columns">
