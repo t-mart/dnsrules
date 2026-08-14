@@ -227,6 +227,12 @@ The frontend is [htmx 4.0.0-beta6](https://four.htmx.org/), vendored at
 `src/dnsrules/static/dnsrules/htmx.min.js`. There is no CDN. The panel must work
 when DNS or the reverse proxy is broken, so it loads nothing from the network.
 
+The stylesheet at `src/dnsrules/static/dnsrules/app.css` is written by hand, and
+there is no build step. Elements carry the styling, and a class appears only
+where the markup cannot say what a thing is: a message, a state, or a layout
+that has no element. A test fails when a template names a class the stylesheet
+does not define.
+
 Four rules that htmx 1 and 2 documentation gets wrong. Read
 [the htmx 4 docs](https://four.htmx.org/llms-full.txt), never an older guide.
 

@@ -13,22 +13,21 @@
     <script src="{% static 'dnsrules/htmx.min.js' %}" defer></script>
   </head>
   {# htmx 4 makes inheritance explicit, so the CSRF header needs :inherited. #}
-  <body class="mx-auto max-w-7xl p-4"
-        hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>
-    <header class="flex items-baseline justify-between gap-4 border-b border-slate-300 pb-2 dark:border-slate-700">
-      <a class="text-lg font-semibold" href="{% url 'dashboard' %}">dnsrules</a>
+  <body hx-headers:inherited='{"X-CSRFToken": "{{ csrf_token }}"}'>
+    <header>
+      <a href="{% url 'dashboard' %}">dnsrules</a>
       {% if user.is_authenticated %}
-        <nav class="flex items-baseline gap-4 text-sm">
-          <a class="underline underline-offset-4" href="{% url 'queries' %}">Queries</a>
-          <a class="underline underline-offset-4" href="{% url 'rules' %}">Rules</a>
+        <nav>
+          <a href="{% url 'queries' %}">Queries</a>
+          <a href="{% url 'rules' %}">Rules</a>
           <form method="post" action="{% url 'logout' %}">
             {% csrf_token %}
-            <button class="underline underline-offset-4" type="submit">Sign out</button>
+            <button class="link" type="submit">Sign out</button>
           </form>
         </nav>
       {% endif %}
     </header>
-    <main class="py-6">
+    <main>
       {% block content %}{% endblock %}
     </main>
   </body>

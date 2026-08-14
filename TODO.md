@@ -136,9 +136,14 @@ only if the question comes up in use.
 
 ## 6. Plain CSS
 
-- [ ] Write `src/dnsrules/static/dnsrules/app.css` by hand.
-- [ ] Delete `django-tailwind-cli`, `assets/app.css`, `.django_tailwind_cli/`,
+- [x] `src/dnsrules/static/dnsrules/app.css`, written by hand. Elements carry
+      the styling, and a class appears only where the markup cannot say what a
+      thing is.
+- [x] Delete `django-tailwind-cli`, `assets/app.css`, `.django_tailwind_cli/`,
       and the `css`, `css-watch`, and `css-check` recipes.
+- [x] A test that every class a template uses is defined in the stylesheet.
+      Tailwind generated a rule for whatever a template named, so a typo was
+      invisible. Nothing generates one now.
 
 ## 7. Docker
 
