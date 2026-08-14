@@ -1,0 +1,31 @@
+{% comment %}
+  One chart. `bars` is the set, `filter` names the log column a row links to,
+  and `nothing` is what an empty set says.
+
+  stringformat, not floatformat: a percentage goes into a style attribute, and
+  a localised number would put a comma where CSS needs a point.
+{% endcomment %}
+<table>
+  <tbody>
+    {% for bar in bars %}
+      <tr>
+        <td class="mono">
+          <a href="{% url 'queries' %}?{{ filter }}={{ bar.key|urlencode }}&amp;window={{ window }}">{{ bar.label }}</a>
+        </td>
+        <td class="bar">
+          <span style="width: {{ bar.share|stringformat:'.2f' }}%">
+            {% if bar.blocked %}<span style="width: {{ bar.blocked_share|stringformat:'.2f' }}%"></span>{% endif %}
+          </span>
+        </td>
+        <td class="nowrap">
+          {{ bar.count }}
+          {% if bar.blocked and bar.blocked != bar.count %}
+            <span class="muted small">{{ bar.blocked }} blocked</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td class="muted">{{ nothing }}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>

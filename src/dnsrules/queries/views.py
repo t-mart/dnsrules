@@ -1,4 +1,4 @@
-"""The query log screen.
+"""The query log screen, and the dashboard that counts the same rows.
 
 One table, a filter on each column, and a control on each row. The control is
 the point of the project: a name you need is blocked, and you unblock it here
@@ -17,6 +17,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from dnsrules.core import jobs
+from dnsrules.queries import stats
 from dnsrules.queries.models import Client, Query
 from dnsrules.rules.forms import DURATIONS
 from dnsrules.rules.models import Group, Rule, Source
@@ -28,15 +29,26 @@ logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 50
 
-WINDOWS = [
-    ("15m", "Last 15 minutes", timedelta(minutes=15)),
-    ("1h", "Last hour", timedelta(hours=1)),
-    ("24h", "Last day", timedelta(days=1)),
-    ("7d", "Last week", timedelta(days=7)),
-    ("", "Everything", None),
+# Each bounded window, with the bucket the dashboard draws it in. "Everything"
+# is not one: it has no bound, and four aggregates over thirty days of rows is
+# not a dashboard.
+PERIODS = {
+    "15m": (timedelta(minutes=15), "minute"),
+    "1h": (timedelta(hours=1), "minute"),
+    "24h": (timedelta(days=1), "hour"),
+    "7d": (timedelta(days=7), "hour"),
+}
+DEFAULT_PERIOD = "24h"
+
+WINDOW_CHOICES = [
+    ("15m", "Last 15 minutes"),
+    ("1h", "Last hour"),
+    ("24h", "Last day"),
+    ("7d", "Last week"),
+    ("", "Everything"),
 ]
-WINDOW_CHOICES = [(key, label) for key, label, _ in WINDOWS]
-_SPANS = {key: span for key, _, span in WINDOWS}
+PERIOD_CHOICES = [(key, label) for key, label in WINDOW_CHOICES if key in PERIODS]
+_SPANS = {key: span for key, (span, _) in PERIODS.items()}
 
 STATUS_CHOICES = [
     ("", "Any status"),
@@ -104,6 +116,39 @@ def _render(request: Request, context: dict, status: int = 200) -> HttpResponse:
 @require_http_methods(["GET"])
 def index(request: Request) -> HttpResponse:
     return _render(request, _context(request))
+
+
+@login_required
+@require_http_methods(["GET"])
+def dashboard(request: Request) -> HttpResponse:
+    """The same rows as the log, counted rather than listed.
+
+    Every chart is a percentage, so CSS draws it and the whole panel swaps.
+    Nothing here is built by a script that a swap would have to rebuild.
+    """
+    window = request.GET.get("window", "").strip()
+    if window not in PERIODS:
+        window = DEFAULT_PERIOD
+    span, kind = PERIODS[window]
+    since = timezone.now() - span
+    bars = stats.timeline(since, kind)
+    # The window bounds the buckets, so the chart already holds the totals.
+    total = sum(bar.count for bar in bars)
+    stopped = sum(bar.blocked for bar in bars)
+    context = {
+        "window": window,
+        "periods": PERIOD_CHOICES,
+        "since": since,
+        "timeline": bars,
+        "blocked": stats.top(since, blocked=True),
+        "allowed": stats.top(since, blocked=False),
+        "clients": stats.clients(since),
+        "total": total,
+        "stopped": stopped,
+        "share": 100 * stopped / total if total else 0,
+    }
+    template = "queries/summary.html" if request.htmx else "queries/dashboard.html"
+    return render(request, template, context)
 
 
 @login_required

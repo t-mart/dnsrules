@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 
+{% block title %}Dashboard{% endblock %}
+
 {% block content %}
   <h1>Dashboard</h1>
+  {% include "queries/summary.html" %}
 {% endblock %}

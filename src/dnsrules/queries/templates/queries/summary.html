@@ -1,0 +1,53 @@
+{% comment %}
+  Target and swap are declared once, with :inherited, and they reach
+  descendants only. The whole panel swaps, because every chart here is drawn by
+  CSS and there is nothing for a script to rebuild.
+{% endcomment %}
+<div id="summary"
+     class="stack"
+     hx-target:inherited="#summary"
+     hx-swap:inherited="outerHTML">
+
+  <form class="fields" hx-get="{% url 'dashboard' %}" hx-trigger="change">
+    <div>
+      <label for="summary-window">When</label>
+      <select id="summary-window" name="window">
+        {% for value, label in periods %}
+          <option value="{{ value }}" {% if value == window %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <p class="muted small">
+      {{ total }} queries since {{ since|date:"D H:i" }}.
+      {{ stopped }} blocked, {{ share|stringformat:".1f" }}%.
+    </p>
+  </form>
+
+  <section>
+    <h2>Queries over time</h2>
+    <div class="chart">
+      {% for bar in timeline %}
+        <div title="{{ bar.label }}: {{ bar.count }} queries, {{ bar.blocked }} blocked">
+          <span style="height: {{ bar.share|stringformat:'.2f' }}%">
+            {% if bar.blocked %}<span style="height: {{ bar.blocked_share|stringformat:'.2f' }}%"></span>{% endif %}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <div class="columns">
+    <section>
+      <h2>Blocked most</h2>
+      {% include "queries/bars.html" with bars=blocked filter="qname" nothing="Nothing was blocked." %}
+    </section>
+    <section>
+      <h2>Asked for most</h2>
+      {% include "queries/bars.html" with bars=allowed filter="qname" nothing="No queries in this window." %}
+    </section>
+    <section>
+      <h2>Clients</h2>
+      {% include "queries/bars.html" with bars=clients filter="client" nothing="No queries in this window." %}
+    </section>
+  </div>
+</div>

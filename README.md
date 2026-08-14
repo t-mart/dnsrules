@@ -226,6 +226,26 @@ local zone, including the LAN names and `.invalid`.
 
 Run `just probe` next to `just unbound` to see the flags for yourself.
 
+### The dashboard
+
+`/` counts the same rows: queries over time, the names blocked and asked for
+most, and a breakdown by client. Each bar links into the log with the window it
+was drawn for, so a name in a chart is one click from its rows.
+
+There is no chart library. A bar is one count against the largest count, which
+is a percentage, and CSS draws a percentage. Nothing is built by a script, so
+the whole panel swaps like every other panel here.
+
+A quiet bucket has no row in the database. The empty buckets are made in
+Python, because a chart that skipped them would draw a silent hour as if it
+never happened.
+
+The window runs from 15 minutes to a week, and not further. One load is four
+aggregates over the table the ingest writes. Measured on 250,000 rows, the day
+window costs seven statements and 0.24 seconds.
+
+### Retention
+
 Rows live 30 days, in one table, and the retention job deletes the rest.
 Measured on one sample, the house makes about 250,000 queries a day, so that is
 near 7.5 million rows. Postgres does not notice that many, and `at` carries a

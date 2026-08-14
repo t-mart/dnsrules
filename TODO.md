@@ -87,7 +87,6 @@ clients outside it. Phase 9 adds the tags that make a group mean something.
       `post_worker_init` so nothing is inherited across the fork.
 - [x] `worker` command, for development next to `runserver`.
 - [x] Delete `src/dnsrules/units/`, the `units` command, and `test_units.py`.
-- [ ] Run migrations at startup, so a deploy needs no separate step.
 
 ## 3. Scrap the archive
 
@@ -166,11 +165,21 @@ Still to do:
 
 ## 8. Dashboard
 
-- [ ] Top blocked and top allowed over a window, as CSS bars.
-- [ ] Client breakdown, as CSS bars.
-- [ ] Queries over time. Choose a chart library at this point, not before.
-- [ ] Keep chart elements outside the htmx swap target. Use `htmx.onLoad()` for
-      anything inserted later.
+Done. `/` counts the rows the log lists.
+
+- [x] Top blocked and top asked for over a window, as CSS bars.
+- [x] Client breakdown, with the stopped part of each client in its bar.
+- [x] Queries over time, one column for each bucket. The empty buckets are
+      drawn, so a quiet hour reads as quiet and not as absent.
+- [x] Each bar links into the log, with the same window.
+- [x] No chart library. Every chart here is a count against a count, which is a
+      percentage, and CSS draws a percentage. So the whole panel swaps, and
+      nothing needs `htmx.onLoad()`. Adding a library later is easy; removing
+      one is not.
+
+The window is bounded, 15 minutes to a week. "Everything" is not offered: one
+load is four aggregates, and they run against the table the ingest writes.
+Measured on 250,000 rows, the day window costs seven statements and 0.24 s.
 
 ## 9. Groups, deferred
 

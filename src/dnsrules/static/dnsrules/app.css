@@ -19,6 +19,7 @@
   --bad-line: #dc2626;
   --good: #15803d;
   --good-line: #16a34a;
+  --bar: #94a3b8;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,6 +35,7 @@
     --bad-line: #b91c1c;
     --good: #86efac;
     --good-line: #15803d;
+    --bar: #475569;
   }
 }
 
@@ -158,6 +160,11 @@ td {
   flex: 1 1 8rem;
 }
 
+/* A field that stands alone does not need the width of the page. */
+.fields > div:only-of-type {
+  flex: 0 1 12rem;
+}
+
 .stack {
   display: flex;
   flex-direction: column;
@@ -214,4 +221,59 @@ td {
 td input,
 td select {
   width: auto;
+}
+
+/* The dashboard sections, side by side while they fit and stacked when they
+   do not. */
+.columns {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+}
+
+/* A bar is a percentage of its box, so there is nothing here to compute. The
+   inner element is the blocked part of the bar it sits in. */
+td.bar {
+  width: 40%;
+  padding-right: 0.5rem;
+}
+
+td.bar > span {
+  display: block;
+  height: 0.75rem;
+  border-radius: 0.125rem;
+  background: var(--bar);
+}
+
+td.bar > span > span {
+  display: block;
+  height: 100%;
+  border-radius: 0.125rem;
+  background: var(--bad-line);
+}
+
+/* One column for each bucket, growing from the bottom. */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 8rem;
+}
+
+.chart > div {
+  display: flex;
+  align-items: flex-end;
+  flex: 1 1 0;
+  height: 100%;
+}
+
+.chart > div > span {
+  width: 100%;
+  background: var(--bar);
+}
+
+.chart > div > span > span {
+  display: block;
+  width: 100%;
+  background: var(--bad-line);
 }
