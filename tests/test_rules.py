@@ -103,7 +103,21 @@ def test_reconcile_raises_every_serial(zone_settings):
 
 def test_reconcile_tells_unbound_about_every_zone(zone_settings, transfers):
     services.reconcile()
-    assert transfers == ["rules_adults", "rules_kids"]
+    assert transfers == ["adults", "kids"]
+
+
+def test_reconcile_leaves_a_zone_outside_the_settings_alone(zone_settings, transfers):
+    """unbound has no clause for it, so a transfer would fail by design. Its
+    rules stay, because a name dropped from the environment is often a typo."""
+    retired = Group.objects.create(name="retired")
+    make(retired, "old.example.com")
+
+    services.reconcile()
+
+    assert transfers == ["adults", "kids"]
+    retired.refresh_from_db()
+    assert retired.serial == 1
+    assert retired.rules.count() == 1
 
 
 def test_reconcile_raises_the_serial_before_it_asks_for_a_transfer(
@@ -126,7 +140,7 @@ def test_reconcile_confirms_the_serial_unbound_holds(zone_settings, transfers):
     """The transfer reply says ok either way, so the serial is the only proof."""
     services.reconcile()
     kids = Group.objects.get(name="kids")
-    assert services.confirm({kids.zone: kids.serial}) == []
+    assert services.confirm({kids.name: kids.serial}) == []
 
 
 def test_reconcile_raises_when_unbound_never_fetched_the_zone(
@@ -134,10 +148,10 @@ def test_reconcile_raises_when_unbound_never_fetched_the_zone(
 ):
     """auth_zone_transfer answers ok when the fetch failed. This catches it."""
     monkeypatch.setattr(
-        services.control, "auth_zones", lambda host, port, **kw: {"rules_kids": None}
+        services.control, "auth_zones", lambda host, port, **kw: {"kids": None}
     )
 
-    with pytest.raises(ControlError, match="never fetched rules_kids"):
+    with pytest.raises(ControlError, match="never fetched kids"):
         services.reconcile()
 
 
@@ -145,7 +159,7 @@ def test_reconcile_raises_when_unbound_is_behind(zone_settings, transfers, monke
     monkeypatch.setattr(
         services.control,
         "auth_zones",
-        lambda host, port, **kw: {"rules_kids": 1, "rules_adults": 1},
+        lambda host, port, **kw: {"kids": 1, "adults": 1},
     )
 
     with pytest.raises(ControlError, match="at serial 1, not 2"):
@@ -160,26 +174,26 @@ def test_reconcile_raises_when_the_zone_name_does_not_match_unbound(
         services.control, "auth_zones", lambda host, port, **kw: {"something_else": 9}
     )
 
-    with pytest.raises(ControlError, match="no zone rules_"):
+    with pytest.raises(ControlError, match="no zone "):
         services.reconcile()
 
 
 def test_a_zone_ahead_of_the_expected_serial_is_not_behind(zone_settings, transfers):
     """Two changes in a row leave unbound on the later one, which carries both."""
     kids = Group.objects.get(name="kids")
-    assert services.confirm({kids.zone: kids.serial - 1}) == []
+    assert services.confirm({kids.name: kids.serial - 1}) == []
 
 
 def test_confirm_asks_again_until_the_serial_arrives(zone_settings, monkeypatch):
     """The transfer command answers before the fetch runs, so the first read is
     honestly early."""
-    replies = [{"rules_kids": 1}, {"rules_kids": 1}, {"rules_kids": 4}]
+    replies = [{"kids": 1}, {"kids": 1}, {"kids": 4}]
     naps = []
     monkeypatch.setattr(
         services.control, "auth_zones", lambda host, port, **kw: replies.pop(0)
     )
 
-    problems = services.confirm({"rules_kids": 4}, clock=lambda: 0.0, sleep=naps.append)
+    problems = services.confirm({"kids": 4}, clock=lambda: 0.0, sleep=naps.append)
 
     assert problems == []
     assert naps == [services.CONFIRM_EVERY, services.CONFIRM_EVERY]
@@ -188,14 +202,14 @@ def test_confirm_asks_again_until_the_serial_arrives(zone_settings, monkeypatch)
 def test_confirm_gives_up_at_the_deadline(zone_settings, monkeypatch):
     ticks = iter([0.0, 0.5, 1.0, 9.0])
     monkeypatch.setattr(
-        services.control, "auth_zones", lambda host, port, **kw: {"rules_kids": 1}
+        services.control, "auth_zones", lambda host, port, **kw: {"kids": 1}
     )
 
     problems = services.confirm(
-        {"rules_kids": 4}, clock=lambda: next(ticks), sleep=lambda _: None
+        {"kids": 4}, clock=lambda: next(ticks), sleep=lambda _: None
     )
 
-    assert problems == ["unbound holds rules_kids at serial 1, not 4"]
+    assert problems == ["unbound holds kids at serial 1, not 4"]
 
 
 def test_reconcile_reports_a_failed_transfer(zone_settings, monkeypatch):
@@ -221,7 +235,7 @@ def test_prune_deletes_expired_rules_and_tells_unbound(zone_settings, transfers)
     assert services.prune() == 1
 
     assert rules_in(services.zone_text(kids)) == ["keep.example.com CNAME ."]
-    assert transfers == ["rules_adults", "rules_kids"]
+    assert transfers == ["adults", "kids"]
 
 
 def test_prune_with_nothing_to_do_tells_unbound_nothing(zone_settings, transfers):

@@ -46,6 +46,19 @@ def test_the_page_lists_a_group_for_each_entry(client, admin, zone_settings):
     assert "adults" in body
 
 
+def test_the_zone_picker_is_a_choice_only_when_there_is_one(
+    client, admin, zone_settings
+):
+    """A select with a single option asks a question with one answer."""
+    assert 'name="group"' in client.get("/rules/").content.decode()
+
+    zone_settings.RPZ_ZONES = ["kids"]
+    body = client.get("/rules/").content.decode()
+
+    assert '<select name="group"' not in body
+    assert 'type="hidden" name="group"' in body
+
+
 def test_adding_a_rule_reaches_the_zone(client, admin, zone_settings):
     kids = Group.objects.get(name="kids")
 

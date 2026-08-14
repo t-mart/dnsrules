@@ -36,7 +36,7 @@ def _sections() -> list[dict]:
         rules[rule.group.name].append(rule)
     return [
         {"name": group.name, "rules": rules[group.name]}
-        for group in Group.objects.all()
+        for group in Group.objects.configured()
     ]
 
 
@@ -79,7 +79,7 @@ def rpz(request: HttpRequest, name: str) -> HttpResponse:
     No authentication, because unbound cannot sign in. The response names every
     domain the house blocks, so keep the site off the open internet.
     """
-    group = get_object_or_404(Group, name=name)
+    group = get_object_or_404(Group.objects.configured(), name=name)
     return HttpResponse(services.zone_text(group), content_type="text/plain")
 
 

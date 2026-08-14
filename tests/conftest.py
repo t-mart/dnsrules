@@ -28,7 +28,7 @@ def transfers(monkeypatch):
         return "ok\n"
 
     def held(host, port, **kwargs):
-        return {group.zone: group.serial for group in Group.objects.all()}
+        return {group.name: group.serial for group in Group.objects.all()}
 
     monkeypatch.setattr(services.control, "auth_zone_transfer", record)
     monkeypatch.setattr(services.control, "auth_zones", held)
@@ -36,22 +36,23 @@ def transfers(monkeypatch):
 
 
 @pytest.fixture
-def groups(db):
-    """Two groups, the way a deploy defines them.
+def groups(db, settings):
+    """Two zones, the way a deploy declares them.
 
-    The default group from the data migration goes first, so a test that counts
-    groups counts only these.
+    The zone the app seeds at migrate goes first, so a test that counts zones
+    counts only these.
     """
     Group.objects.all().delete()
+    settings.RPZ_ZONES = ["adults", "kids"]
     return [
-        Group.objects.create(name="adults", zone="rules_adults"),
-        Group.objects.create(name="kids", zone="rules_kids"),
+        Group.objects.create(name="adults"),
+        Group.objects.create(name="kids"),
     ]
 
 
 @pytest.fixture
 def zone_settings(settings, transfers, groups):
-    """Two groups, and no unbound to tell about them."""
+    """Two zones, and no unbound to tell about them."""
     return settings
 
 

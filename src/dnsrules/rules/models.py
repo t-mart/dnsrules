@@ -8,6 +8,7 @@ often each rule fires.
 See `dnsrules.rules.services` for what unbound fetches.
 """
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
@@ -30,24 +31,33 @@ class Source(models.TextChoices):
     QUERY_LOG = "query_log", "Added from the query log"
 
 
+class GroupQuerySet(models.QuerySet):
+    def configured(self) -> GroupQuerySet:
+        """The zones `DNSRULES_RPZ_ZONES` names.
+
+        A row outside the list is left alone rather than deleted. It stops
+        being served and transferred, and it keeps its rules, so a typo in the
+        environment costs a fetch and never a rule set.
+        """
+        return self.filter(name__in=settings.RPZ_ZONES)
+
+
 class Group(models.Model):
     """A set of rules with its own RPZ zone, which unbound fetches.
 
-    `name` picks the URL, at `/rpz/<name>.zone`. `zone` is what unbound calls
-    that zone, and it is the argument to `auth_zone_transfer`. One group is
-    enough until a rule has to reach one client and not another.
+    `name` is the whole identity: the URL at `/rpz/<name>.zone`, and the
+    argument to `auth_zone_transfer`. unbound.conf must spell it the same way,
+    and `reconcile` reads the serial back to catch a deployment where it does
+    not.
     """
 
     name = models.CharField(max_length=NAME_MAX_LENGTH, unique=True)
-    # The RPZ zone name inside unbound.conf. Ansible owns that file, so this
-    # has to match what it writes.
-    zone = models.CharField(max_length=NAME_MAX_LENGTH)
     # unbound accepts a transfer only when the serial rises, so it has to
     # outlive a restart of either side.
     serial = models.BigIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = models.Manager()
+    objects = GroupQuerySet.as_manager()
 
     class Meta:
         ordering = ["name"]

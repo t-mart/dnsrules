@@ -62,12 +62,22 @@ def test_an_unknown_group_is_a_404(client, zone_settings):
     assert client.get("/rpz/nobody.zone").status_code == 404
 
 
-def test_a_fresh_database_serves_the_configured_zone(client, db, settings):
-    """The two names in unbound.conf. A migration seeds them from the settings."""
-    zone = Group.objects.get(name=settings.RPZ_NAME)
+def test_a_fresh_database_serves_every_configured_zone(client, db, settings):
+    """The app seeds a row for each name after migrate, so a deploy that adds
+    one to the environment needs nothing done by hand."""
+    for name in settings.RPZ_ZONES:
+        assert Group.objects.filter(name=name).exists()
+        assert client.get(f"/rpz/{name}.zone").status_code == 200
 
-    assert zone.zone == settings.RPZ_ZONE
-    assert client.get(f"/rpz/{settings.RPZ_NAME}.zone").status_code == 200
+
+def test_a_zone_outside_the_settings_is_not_served(client, zone_settings):
+    """A name dropped from the environment keeps its rules and stops being
+    served. unbound does not know it either, so 404 is the honest answer."""
+    Group.objects.create(name="retired")
+    services.reconcile()
+
+    assert client.get("/rpz/retired.zone").status_code == 404
+    assert Group.objects.filter(name="retired").exists()
 
 
 def test_a_database_fault_never_answers_an_empty_zone(

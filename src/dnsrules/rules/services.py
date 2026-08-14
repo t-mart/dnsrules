@@ -87,24 +87,25 @@ def reconcile() -> list[str]:
     """Raise every serial, tell unbound to fetch, then check that it did.
 
     Returns the zone names it asked for, and raises when unbound does not
-    hold them.
+    hold them. Only the configured zones: a row outside the settings is not in
+    unbound.conf either, so a transfer for it would fail by design.
 
     Call this after the transaction that changed the rules has committed. A
     failed transfer then reports an error without losing the change, and
     unbound refetches on its own within the SOA refresh interval.
     """
-    Group.objects.update(serial=F("serial") + 1)
-    groups = list(Group.objects.all())
+    Group.objects.configured().update(serial=F("serial") + 1)
+    groups = list(Group.objects.configured())
     for group in groups:
         control.auth_zone_transfer(
-            settings.UNBOUND_CONTROL_HOST, settings.UNBOUND_CONTROL_PORT, group.zone
+            settings.UNBOUND_CONTROL_HOST, settings.UNBOUND_CONTROL_PORT, group.name
         )
     # The transfer reply means nothing, so ask unbound what it holds. This is
     # the only thing that tells a rule that landed from one that did not.
-    problems = confirm({group.zone: group.serial for group in groups})
+    problems = confirm({group.name: group.serial for group in groups})
     if problems:
         raise control.ControlError("; ".join(problems))
-    return [group.zone for group in groups]
+    return [group.name for group in groups]
 
 
 def prune() -> int:

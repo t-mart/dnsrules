@@ -118,9 +118,14 @@
                   hx-include="#rule-defaults">
               {% csrf_token %}
               <input type="hidden" name="domain" value="{{ row.qname }}">
-              <select name="group">
-                {% for name in groups %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
-              </select>
+              {% if groups|length > 1 %}
+                <select name="group">
+                  <option value="{{ every_zone }}">Every zone</option>
+                  {% for name in groups %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+                </select>
+              {% else %}
+                <input type="hidden" name="group" value="{{ every_zone }}">
+              {% endif %}
               <button class="link" name="action" value="block" type="submit">Block</button>
               <button class="link" name="action" value="allow" type="submit">Allow</button>
             </form>

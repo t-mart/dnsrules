@@ -57,6 +57,11 @@ STATUS_CHOICES = [
     ("noanswer", "No answer"),
 ]
 
+# Write the rule to every configured zone. It is the default on the log,
+# because a name you want stopped is usually a name you want stopped
+# everywhere, and the alternative costs a choice on every row.
+EVERY_ZONE = "*"
+
 
 def _filtered(request: Request):
     """Apply each filter that carries a value. Returns the rows and the terms."""
@@ -99,7 +104,8 @@ def _context(request: Request, **extra) -> dict:
         "windows": WINDOW_CHOICES,
         "statuses": STATUS_CHOICES,
         "durations": DURATIONS,
-        "groups": [group.name for group in Group.objects.all()],
+        "groups": [group.name for group in Group.objects.configured()],
+        "every_zone": EVERY_ZONE,
         "naming": request.GET.get("naming", "").strip(),
         "error": None,
         "note": None,
@@ -163,32 +169,34 @@ def rule(request: Request) -> HttpResponse:
     if action not in {Action.BLOCK.value, Action.ALLOW.value}:
         return _render(request, _context(request, error="Unknown action."), status=422)
 
-    group = Group.objects.filter(name=request.POST.get("group", "")).first()
-    if group is None:
-        return _render(request, _context(request, error="Choose a group."), status=422)
+    zones = list(Group.objects.configured())
+    chosen = request.POST.get("group", "")
+    targets = zones if chosen == EVERY_ZONE else [z for z in zones if z.name == chosen]
+    if not targets:
+        return _render(request, _context(request, error="Choose a zone."), status=422)
 
     seconds = request.POST.get("duration", "")
     expires_at = (
         timezone.now() + timedelta(seconds=int(seconds)) if seconds.isdigit() else None
     )
-    # One rule for each name in each group. A second click replaces the first,
+    # One rule for each name in each zone. A second click replaces the first,
     # so blocking then allowing does what it looks like.
-    Rule.objects.update_or_create(
-        group=group,
-        domain=domain,
-        defaults={
-            "action": action,
-            "source": Source.QUERY_LOG,
-            "expires_at": expires_at,
-            "note": "From the query log",
-        },
-    )
+    for group in targets:
+        Rule.objects.update_or_create(
+            group=group,
+            domain=domain,
+            defaults={
+                "action": action,
+                "source": Source.QUERY_LOG,
+                "expires_at": expires_at,
+                "note": "From the query log",
+            },
+        )
     verb = "blocked" if action == Action.BLOCK.value else "allowed"
+    where = "every zone" if len(targets) > 1 else targets[0].name
     # The worker tells unbound. This page only records what the rule is.
     jobs.nudge("transfer")
-    return _render(
-        request, _context(request, note=f"{domain} is {verb} for {group.name}.")
-    )
+    return _render(request, _context(request, note=f"{domain} is {verb} in {where}."))
 
 
 @login_required

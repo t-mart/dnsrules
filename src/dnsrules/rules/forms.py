@@ -3,7 +3,7 @@ from datetime import timedelta
 from django import forms
 from django.utils import timezone
 
-from dnsrules.rules.models import Rule
+from dnsrules.rules.models import Group, Rule
 
 # Seconds, or empty for permanent. The form asks for a duration and never for a
 # date, because the case that started this project is "let me reach this site
@@ -30,6 +30,13 @@ class RuleForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.order_fields(["group", "domain", "action", "duration", "note"])
+        # Only the configured zones, and no choice at all while there is one.
+        # A picker with a single option asks a question with one answer.
+        zones = list(Group.objects.configured())
+        self.fields["group"].queryset = Group.objects.configured()
+        if len(zones) == 1:
+            self.fields["group"].initial = zones[0]
+            self.fields["group"].widget = forms.HiddenInput()
         if self.instance.pk:
             self.fields["duration"].choices = [(KEEP, "No change"), *DURATIONS]
             self.fields["duration"].initial = KEEP

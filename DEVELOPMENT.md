@@ -32,10 +32,14 @@ test database:
 psql --username postgres --command "ALTER ROLE dnsrules_test CREATEDB"
 ```
 
-Migrations create the rules zone from `DNSRULES_RPZ_NAME` and
-`DNSRULES_RPZ_ZONE`, which both default to `dnsrules`. That is why the
-development resolver fetches `/rpz/dnsrules.zone`. The settings seed the row and
-nothing more, so a rename on an existing database is a change to the row.
+`rules/apps.py` gives each name in `DNSRULES_RPZ_ZONES` a row after every
+migrate, which covers `serve`, `just manage migrate`, and the test database. The
+default is one zone, `dnsrules`, which is why the development resolver fetches
+`/rpz/dnsrules.zone`.
+
+It only adds. A name dropped from the settings keeps its row and its rules, and
+`Group.objects.configured()` stops returning it, so it is not served and not
+transferred. A typo in the environment must never delete a rule set.
 
 ## Test against a real resolver
 

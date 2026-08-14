@@ -13,11 +13,12 @@ sides of Pi-hole and AdGuard Home.
 
 Limitations:
 
-- dnsrules can only provide a single RPZ zone to unbound.
 - The log marks an answer blocked. It does not say which RPZ zone blocked it.
   Unbound reports no zone, and no command maps a client to one.
 - A NODATA rule does not reach the log. That answer carries no signal that
   separates it from an ordinary empty answer.
+- dnsrules cannot show which clients a zone reaches. `tags` in `unbound.conf`
+  decides that, and nothing reports it back.
 
 ## Rules
 
@@ -162,8 +163,7 @@ Every setting is a `DNSRULES_` environment variable.
 | `DB_NAME`, `DB_USER`, `DB_...` | The PostgreSQL connection.                          |
 | `DNSTAP_HOST`, `DNSTAP_PORT`   | Where Unbound sends the query stream.               |
 | `CONTROL_HOST`, `CONTROL_PORT` | Unbound's remote control.                           |
-| `RPZ_NAME`                     | The file name of the RPZ zone (`/rpz/<name>.zone`). |
-| `RPZ_ZONE`                     | The name dnsrules passes to `auth_zone_transfer`.   |
+| `RPZ_ZONES`                    | The rules zones, comma separated.                   |
 | `DEBUG`                        | Django debug mode.                                  |
 
 ## Configure Unbound
@@ -181,10 +181,9 @@ server:
     access-control-tag: 10.0.0.0/24 "filtered"
 
 # The dnsrules zone comes first, so an allow rule here beats a block below.
+# One clause for each name in `RPZ_ZONES`.
 rpz:
-    # See `RPZ_ZONE`
     name: "dnsrules"
-    # See `RPZ_NAME`
     url: "http://127.0.0.1:8000/rpz/dnsrules.zone"
     zonefile: "/var/lib/unbound/rpz-dnsrules.zone"
     tags: "filtered"
@@ -220,9 +219,22 @@ at every start, and a dnsrules outage never unblocks the network.
 `rpz-signal-nxdomain-ra` clears the RA bit on a blocked answer. Without it, the
 query log cannot tell a blocked name from a name that does not exist.
 
-`DNSRULES_RPZ_NAME` is the file name of the RPZ zone (`/rpz/<name>.zone`) and
-defaults to `dnsrules`. `DNSRULES_RPZ_ZONE` is the name dnsrules passes to
-`auth_zone_transfer`.
+### More than one zone
+
+Set `DNSRULES_RPZ_ZONES=dnsrules,kids` and write an `rpz` clause for each name.
+Give each clause its own tag, and tag the clients that zone must reach:
+
+```
+    define-tag: "filtered kids"
+    access-control-tag: 10.0.0.30/32 "filtered kids"
+```
+
+Then a rule in the `kids` zone reaches those clients alone. dnsrules serves each
+zone at its own URL, transfers each one, and the rules page gives each its own
+section. From the query log, "Every zone" writes the rule to all of them.
+
+Unbound decides who a zone reaches, and it reports that to nothing. Keep the
+tags in `unbound.conf` and the names in `RPZ_ZONES` in step by hand.
 
 It may be ideal to keep `dnstap-ip` and `control-interface` on `127.0.0.1`. The
 dnstap stream exposes browsing history, and remote control has no password, so

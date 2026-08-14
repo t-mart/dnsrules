@@ -158,6 +158,43 @@ def test_a_duration_makes_the_rule_temporary(client, admin, logged):
     assert Rule.objects.get().expires_at is not None
 
 
+def test_blocking_everywhere_writes_the_rule_to_every_zone(client, admin, logged):
+    """The default on the log. A name worth stopping is usually worth stopping
+    for every client, and the alternative is a choice on every row."""
+    response = client.post(
+        "/queries/rule/",
+        {"domain": "ads.example.com", "group": "*", "action": Action.BLOCK},
+        **HTMX,
+    )
+
+    assert response.status_code == 200
+    assert sorted(rule.group.name for rule in Rule.objects.all()) == ["adults", "kids"]
+    assert "in every zone" in response.content.decode()
+
+
+def test_blocking_everywhere_twice_replaces_rather_than_repeats(client, admin, logged):
+    post = {"domain": "ads.example.com", "group": "*"}
+    client.post("/queries/rule/", post | {"action": Action.BLOCK}, **HTMX)
+    client.post("/queries/rule/", post | {"action": Action.ALLOW}, **HTMX)
+
+    assert Rule.objects.count() == 2
+    assert {rule.action for rule in Rule.objects.all()} == {Action.ALLOW}
+
+
+def test_a_zone_outside_the_settings_takes_no_rule(client, admin, logged, settings):
+    """A retired zone is not in unbound.conf either, so it is not a target."""
+    Group.objects.create(name="retired")
+
+    response = client.post(
+        "/queries/rule/",
+        {"domain": "ads.example.com", "group": "retired", "action": Action.BLOCK},
+        **HTMX,
+    )
+
+    assert response.status_code == 422
+    assert Rule.objects.count() == 0
+
+
 def test_a_group_that_does_not_exist_is_refused(client, admin, logged):
     response = client.post(
         "/queries/rule/",

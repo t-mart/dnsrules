@@ -134,28 +134,27 @@ says so, and a test holds the behaviour.
 
 ## 2. Many zones
 
-The schema already carries this. `Group` holds the name, the zone, and the
-serial; `reconcile()` transfers every group and confirms every serial; `rpz()`
-resolves any name; the rules page sections by group; the query log control
-already posts a group. Two zones run in the tests today. What is missing is a
-way to declare the list, and the UI polish.
+Done. The schema already carried it: `reconcile()` transferred every group and
+confirmed every serial, `rpz()` resolved any name, the rules page sectioned by
+group, and two zones ran in the tests. What was missing was a way to declare the
+list, and the UI polish.
 
-- [ ] `DNSRULES_RPZ_ZONES`, a comma separated list, default `dnsrules`. It
+- [x] `DNSRULES_RPZ_ZONES`, a comma separated list, default `dnsrules`. It
       replaces `RPZ_NAME` and `RPZ_ZONE`.
-- [ ] Collapse `Group.name` and `Group.zone` into one name. Two names for one
+- [x] Collapse `Group.name` and `Group.zone` into one name. Two names for one
       thing is the drift that `confirm()` had to be written to catch.
-- [ ] `Group.objects.configured()`: the rows the settings name. Use it in
-      `reconcile()`, `rpz()`, `_sections()`, and the query log choices.
-- [ ] A name dropped from the list stops being served and transferred. Its rules
+- [x] `Group.objects.configured()`: the rows the settings name. Use it in
+      `reconcile()`, `rpz()`, `_sections()`, `RuleForm`, and the query log.
+- [x] A name dropped from the list stops being served and transferred. Its rules
       stay in the table, because a typo must not delete a rule set.
-- [ ] The data migration seeds the listed names. A name added later is created
-      at startup, not by hand.
-- [ ] `group=*` on the query log control writes the rule to every configured
+- [x] `rules/apps.py` seeds a row for each listed name on `post_migrate`. That
+      covers `serve`, `just manage migrate`, and the test database alike, so a
+      name added to the environment needs nothing done by hand.
+- [x] `group=*` on the query log control writes the rule to every configured
       zone, and it is the default. Blocking from a row stays one click.
-- [ ] The rules page hides the zone picker while one zone is configured.
+- [x] The rules page hides the zone picker while one zone is configured.
 
-No migration is needed for the zone list itself, and the htmx endpoints do not
-change.
+The htmx endpoints did not change. One migration, to drop the second name.
 
 `reconcile()` raises every serial on each change, so one edit refetches every
 zone. That is wasteful and harmless at this size. Scope it to the changed zone
