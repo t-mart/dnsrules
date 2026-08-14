@@ -13,9 +13,10 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-from dnsrules.hosts import NAME_MAX_LENGTH
 from dnsrules.unbound.domain import MAX_LENGTH, InvalidDomain, normalize
 from dnsrules.unbound.zone import Action
+
+NAME_MAX_LENGTH = 64
 
 ACTION_CHOICES = [
     (Action.BLOCK.value, "Block, answer NXDOMAIN"),
@@ -30,14 +31,17 @@ class Source(models.TextChoices):
 
 
 class Group(models.Model):
-    """A group from `hosts.yml`.
+    """A set of rules with its own RPZ zone, which unbound fetches.
 
-    Ansible owns the name and the membership. Each group has its own RPZ zone,
-    which dnsrules serves and unbound fetches. A group that leaves the file
-    keeps its rules and its row, and nothing fetches them.
+    `name` picks the URL, at `/rpz/<name>.zone`. `zone` is what unbound calls
+    that zone, and it is the argument to `auth_zone_transfer`. One group is
+    enough until a rule has to reach one client and not another.
     """
 
     name = models.CharField(max_length=NAME_MAX_LENGTH, unique=True)
+    # The RPZ zone name inside unbound.conf. Ansible owns that file, so this
+    # has to match what it writes.
+    zone = models.CharField(max_length=NAME_MAX_LENGTH)
     # unbound accepts a transfer only when the serial rises, so it has to
     # outlive a restart of either side.
     serial = models.BigIntegerField(default=1)

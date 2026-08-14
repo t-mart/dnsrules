@@ -122,9 +122,17 @@ Done. Measured with `just probe`, against unbound 1.26.0:
 
 ## 5. Clients in the UI
 
-- [ ] `Client` model: address and name. Name a client from the query log.
-- [ ] Delete `hosts.py`, `names.py`, `DNSRULES_HOSTS_PATH`, the tailscale
+- [x] `Client` model: address and name. Click a client in the query log to name
+      it, and clear the name to take it back.
+- [x] Groups moved into the database, with the RPZ zone name on the row. A
+      migration adds one group, `home`.
+- [x] Delete `hosts.py`, `names.py`, `DNSRULES_HOSTS_PATH`, the tailscale
       subprocess, and the `hosts` recipe.
+
+The unmanaged marking went with `hosts.yml`. It said that no policy reaches a
+client, which dnsrules read from the networks in that file. unbound decides it,
+through `access-control-tag`, and no control command reports it. Bring it back
+only if the question comes up in use.
 
 ## 6. Plain CSS
 

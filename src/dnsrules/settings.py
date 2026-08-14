@@ -114,18 +114,6 @@ DATABASES = {
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
-def env_path(name: str, default: str) -> Path:
-    """Resolve a relative path against BASE_DIR, so it never depends on cwd.
-
-    Router paths are absolute, so this only affects a source checkout.
-    """
-    return Path(BASE_DIR, env(name, default))
-
-
-# Ansible renders hosts.yml at deploy time. It carries the groups and their
-# unbound zone names.
-HOSTS_PATH = env_path("HOSTS_PATH", "/etc/dnsrules/hosts.yml")
-
 # unbound connects out to this address, so dnsrules listens on it. Loopback
 # only: the stream is every DNS query in the house.
 DNSTAP_HOST = env("DNSTAP_HOST", "127.0.0.1")

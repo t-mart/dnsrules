@@ -5,6 +5,7 @@ the point of the project: a name you need is blocked, and you unblock it here
 without touching a config file.
 """
 
+import ipaddress
 import logging
 from datetime import timedelta
 
@@ -15,11 +16,8 @@ from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
-from dnsrules import names
 from dnsrules.core import jobs
-from dnsrules.hosts import InvalidHosts
-from dnsrules.queries.models import Query
-from dnsrules.rules import services
+from dnsrules.queries.models import Client, Query
 from dnsrules.rules.forms import DURATIONS
 from dnsrules.rules.models import Group, Rule, Source
 from dnsrules.rules.views import Request
@@ -79,23 +77,18 @@ def _filtered(request: Request):
 def _context(request: Request, **extra) -> dict:
     rows, terms = _filtered(request)
     page = Paginator(rows, PAGE_SIZE).get_page(request.GET.get("page"))
-    try:
-        hosts = services.read_hosts()
-        describe = names.directory(hosts, tailnet_names=names.cached_tailnet())
-        groups = list(hosts.groups)
-    except InvalidHosts as problem:
-        logger.warning("No hosts file, so the log shows addresses: %s", problem)
-        describe = None
-        groups = []
+    # One read for the page, rather than one for each of fifty rows.
+    known = dict(Client.objects.values_list("address", "name"))
     context = {
         "page": page,
-        "rows": [(row, describe(row.client) if describe else None) for row in page],
+        "rows": [(row, known.get(row.client, "")) for row in page],
         "terms": terms,
         "query": request.GET.urlencode(),
         "windows": WINDOW_CHOICES,
         "statuses": STATUS_CHOICES,
         "durations": DURATIONS,
-        "groups": groups,
+        "groups": [group.name for group in Group.objects.all()],
+        "naming": request.GET.get("naming", "").strip(),
         "error": None,
         "note": None,
     }
@@ -127,11 +120,7 @@ def rule(request: Request) -> HttpResponse:
 
     group = Group.objects.filter(name=request.POST.get("group", "")).first()
     if group is None:
-        return _render(
-            request,
-            _context(request, error="Choose a group. That client belongs to none."),
-            status=422,
-        )
+        return _render(request, _context(request, error="Choose a group."), status=422)
 
     seconds = request.POST.get("duration", "")
     expires_at = (
@@ -155,3 +144,29 @@ def rule(request: Request) -> HttpResponse:
     return _render(
         request, _context(request, note=f"{domain} is {verb} for {group.name}.")
     )
+
+
+@login_required
+@require_http_methods(["POST"])
+def client(request: Request) -> HttpResponse:
+    """Give an address a name, from the row that shows it.
+
+    An empty name removes the row, so a name can be taken back.
+    """
+    address = request.POST.get("address", "").strip()
+    name = request.POST.get("name", "").strip()
+    try:
+        ipaddress.ip_address(address)
+    except ValueError:
+        return _render(
+            request,
+            _context(request, error=f"{address} is not an address."),
+            status=422,
+        )
+    if name:
+        Client.objects.update_or_create(address=address, defaults={"name": name})
+        note = f"{address} is {name}."
+    else:
+        Client.objects.filter(address=address).delete()
+        note = f"{address} has no name now."
+    return _render(request, _context(request, note=note))

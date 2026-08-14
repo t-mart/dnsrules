@@ -46,13 +46,7 @@ def test_the_page_lists_a_group_for_each_entry(client, admin, zone_settings):
     assert "adults" in body
 
 
-def test_a_visit_gives_every_group_a_row(client, admin, zone_settings):
-    client.get("/rules/")
-    assert [group.name for group in Group.objects.all()] == ["adults", "kids"]
-
-
 def test_adding_a_rule_reaches_the_zone(client, admin, zone_settings):
-    client.get("/rules/")
     kids = Group.objects.get(name="kids")
 
     response = add(client, kids, "ads.example.com")
@@ -62,7 +56,6 @@ def test_adding_a_rule_reaches_the_zone(client, admin, zone_settings):
 
 
 def test_a_duration_sets_the_expiry(client, admin, zone_settings):
-    client.get("/rules/")
     kids = Group.objects.get(name="kids")
     add(client, kids, "ads.example.com", duration="3600")
     assert Rule.objects.get().expires_at is not None
@@ -70,7 +63,6 @@ def test_a_duration_sets_the_expiry(client, admin, zone_settings):
 
 def test_a_bad_domain_answers_422_and_changes_nothing(client, admin, zone_settings):
     """htmx 4 swaps a 4xx, so the form redisplays with its errors."""
-    client.get("/rules/")
     kids = Group.objects.get(name="kids")
 
     response = add(client, kids, "not a domain")
@@ -81,7 +73,6 @@ def test_a_bad_domain_answers_422_and_changes_nothing(client, admin, zone_settin
 
 
 def test_a_repeated_domain_in_one_group_answers_422(client, admin, zone_settings):
-    client.get("/rules/")
     kids = Group.objects.get(name="kids")
     add(client, kids, "ads.example.com")
     assert add(client, kids, "ads.example.com").status_code == 422
@@ -89,7 +80,6 @@ def test_a_repeated_domain_in_one_group_answers_422(client, admin, zone_settings
 
 
 def test_removing_a_rule_leaves_the_zone(client, admin, zone_settings):
-    client.get("/rules/")
     kids = Group.objects.get(name="kids")
     add(client, kids, "ads.example.com")
 
@@ -101,7 +91,6 @@ def test_removing_a_rule_leaves_the_zone(client, admin, zone_settings):
 
 
 def test_editing_a_rule_changes_the_action(client, admin, zone_settings):
-    client.get("/rules/")
     kids = Group.objects.get(name="kids")
     add(client, kids, "ads.example.com")
     rule = Rule.objects.get()
@@ -124,7 +113,6 @@ def test_editing_a_rule_changes_the_action(client, admin, zone_settings):
 
 
 def test_editing_keeps_the_expiry_when_asked(client, admin, zone_settings):
-    client.get("/rules/")
     kids = Group.objects.get(name="kids")
     add(client, kids, "ads.example.com", duration="3600")
     rule = Rule.objects.get()
@@ -145,30 +133,8 @@ def test_editing_keeps_the_expiry_when_asked(client, admin, zone_settings):
     assert Rule.objects.get().expires_at == before
 
 
-def test_a_stale_group_is_shown_with_its_rules(client, admin, zone_settings):
-    guests = Group.objects.create(name="guests")
-    Rule.objects.create(group=guests, domain="ads.example.com")
-    body = client.get("/rules/").content.decode()
-    assert "guests" in body
-    assert "stale" in body
-
-
-def test_a_stale_group_takes_no_new_rules(client, admin, zone_settings):
-    guests = Group.objects.create(name="guests")
-    assert add(client, guests, "ads.example.com").status_code == 422
-    assert Rule.objects.count() == 0
-
-
-def test_a_missing_hosts_file_reports_itself(client, admin, zone_settings, tmp_path):
-    zone_settings.HOSTS_PATH = tmp_path / "missing.yml"
-    response = client.get("/rules/")
-    assert response.status_code == 503
-    assert "does not exist" in response.content.decode()
-
-
 def test_saving_a_rule_asks_the_worker_to_tell_unbound(client, admin, zone_settings):
     """The page never reaches unbound. It sets the job due and moves on."""
-    client.get("/rules/")
     jobs.sync()
     Job.objects.filter(name="transfer").update(
         run_at=timezone.now() + timedelta(hours=3)
@@ -180,7 +146,6 @@ def test_saving_a_rule_asks_the_worker_to_tell_unbound(client, admin, zone_setti
 
 
 def test_a_failed_transfer_keeps_the_rule_and_says_so(client, admin, zone_settings):
-    client.get("/rules/")
     jobs.sync()
     Job.objects.filter(name="transfer").update(
         last_error="ControlError: connection refused"

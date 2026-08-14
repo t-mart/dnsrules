@@ -15,6 +15,26 @@ from django.db import models
 from dnsrules.unbound.domain import MAX_LENGTH
 
 
+class Client(models.Model):
+    """A name for an address, set by hand from the query log.
+
+    Ansible used to render these. It no longer does: the website is the control
+    plane, so the name belongs where a person can change it without a deploy.
+    An address with no row shows as itself.
+    """
+
+    address = models.GenericIPAddressField(unique=True)
+    name = models.CharField(max_length=64)
+
+    objects = models.Manager()
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.address})"
+
+
 class BlockedBy(models.TextChoices):
     """What stopped the answer. Empty means nothing did.
 

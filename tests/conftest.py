@@ -1,42 +1,14 @@
 from pathlib import Path
 
 import pytest
-import yaml
 
-from dnsrules import names
 from dnsrules.rules import services
+from dnsrules.rules.models import Group
 
 # Real bytes from mace. Never committed: the capture holds every DNS query the
 # house made during its window, which is a browsing history. .gitignore lists
 # it, and the tests that need it skip when it is absent.
 CAPTURE = Path(__file__).parent / "fixtures" / "dnstap.fstrm"
-
-GROUPS = ("kids", "adults")
-
-
-@pytest.fixture
-def hosts_path(tmp_path):
-    path = tmp_path / "hosts.yml"
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "groups": [{"name": name, "zone": f"rules_{name}"} for name in GROUPS],
-                "hosts": [
-                    {
-                        "name": "clove",
-                        "addresses": ["10.0.0.2", "100.71.4.9"],
-                        "groups": ["kids"],
-                    }
-                ],
-                "networks": [
-                    {"name": "lan", "cidr": "10.0.0.0/24"},
-                    {"name": "dhcp pool", "cidr": "10.0.1.0/24", "managed": False},
-                    {"name": "tailnet", "cidr": "100.64.0.0/10"},
-                ],
-            }
-        )
-    )
-    return path
 
 
 @pytest.fixture
@@ -56,17 +28,23 @@ def transfers(monkeypatch):
 
 
 @pytest.fixture
-def zone_settings(settings, hosts_path, transfers):
-    """Point dnsrules at a throwaway hosts.yml, with no unbound to tell."""
-    settings.HOSTS_PATH = hosts_path
+def groups(db):
+    """Two groups, the way a deploy defines them.
+
+    The default group from the data migration goes first, so a test that counts
+    groups counts only these.
+    """
+    Group.objects.all().delete()
+    return [
+        Group.objects.create(name="adults", zone="rules_adults"),
+        Group.objects.create(name="kids", zone="rules_kids"),
+    ]
+
+
+@pytest.fixture
+def zone_settings(settings, transfers, groups):
+    """Two groups, and no unbound to tell about them."""
     return settings
-
-
-@pytest.fixture(autouse=True)
-def no_tailscale(monkeypatch):
-    """No test shells out. A test that wants tailnet names passes them in."""
-    names._bucketed.cache_clear()
-    monkeypatch.setattr(names, "cached_tailnet", lambda *args, **kwargs: {})
 
 
 @pytest.fixture(scope="session")

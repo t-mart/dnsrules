@@ -27,13 +27,9 @@ class RuleForm(forms.ModelForm):
         model = Rule
         fields = ["group", "domain", "action", "note"]
 
-    def __init__(self, *args, groups=None, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.order_fields(["group", "domain", "action", "duration", "note"])
-        if groups is not None:
-            # A group that left `hosts.yml` takes no new rules. Nothing
-            # renders for it, because nothing says where to write.
-            self.fields["group"].queryset = groups
         if self.instance.pk:
             self.fields["duration"].choices = [(KEEP, "No change"), *DURATIONS]
             self.fields["duration"].initial = KEEP

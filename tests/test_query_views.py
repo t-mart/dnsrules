@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from dnsrules.queries.models import BlockedBy, Query
+from dnsrules.queries.models import BlockedBy, Client, Query
 from dnsrules.rules import services
 from dnsrules.rules.models import Group, Rule, Source
 from dnsrules.unbound.zone import Action
@@ -79,18 +79,41 @@ def test_each_filter_narrows_the_rows(client, admin, logged):
     assert names(status="allowed") == {"news.example.com"}
 
 
-def test_a_known_client_shows_its_name(client, admin, logged):
+def test_an_unnamed_client_shows_its_address(client, admin, logged):
+    body = client.get("/queries/").content.decode()
+    assert "10.0.0.2" in body
+
+
+def test_a_named_client_shows_its_name(client, admin, logged):
+    Client.objects.create(address="10.0.0.2", name="clove")
     body = client.get("/queries/").content.decode()
     assert "clove" in body
 
 
-def test_a_client_in_the_dhcp_pool_is_marked_unmanaged(client, admin, logged):
-    body = client.get("/queries/").content.decode()
-    assert "unmanaged" in body
+def test_naming_a_client_from_a_row(client, admin, logged):
+    response = client.post(
+        "/queries/client/", {"address": "10.0.0.2", "name": "clove"}, **HTMX
+    )
+    assert response.status_code == 200
+    assert Client.objects.get(address="10.0.0.2").name == "clove"
+    assert "clove" in response.content.decode()
+
+
+def test_an_empty_name_takes_the_name_back(client, admin, logged):
+    Client.objects.create(address="10.0.0.2", name="clove")
+    client.post("/queries/client/", {"address": "10.0.0.2", "name": ""}, **HTMX)
+    assert Client.objects.count() == 0
+
+
+def test_naming_something_that_is_not_an_address_is_refused(client, admin, logged):
+    response = client.post(
+        "/queries/client/", {"address": "not-an-address", "name": "x"}, **HTMX
+    )
+    assert response.status_code == 422
+    assert Client.objects.count() == 0
 
 
 def test_blocking_from_a_row_writes_a_rule_and_reaches_the_zone(client, admin, logged):
-    client.get("/rules/")  # gives each group in the hosts file a row
 
     response = client.post(
         "/queries/rule/",
@@ -146,7 +169,6 @@ def test_a_group_that_does_not_exist_is_refused(client, admin, logged):
 
 
 def test_a_bad_domain_is_refused(client, admin, logged):
-    Group.objects.create(name="kids")
     response = client.post(
         "/queries/rule/",
         {"domain": "not a domain", "group": "kids", "action": Action.BLOCK},
@@ -157,7 +179,6 @@ def test_a_bad_domain_is_refused(client, admin, logged):
 
 
 def test_an_unknown_action_is_refused(client, admin, logged):
-    Group.objects.create(name="kids")
     response = client.post(
         "/queries/rule/",
         {"domain": "ads.example.com", "group": "kids", "action": "delete_everything"},

@@ -25,18 +25,7 @@
 
   {% for section in sections %}
     <section>
-      <h2 class="flex items-baseline gap-2 text-lg font-semibold">
-        {{ section.name }}
-        {% if section.stale %}
-          <span class="rounded bg-amber-200 px-2 py-0.5 text-xs font-normal text-amber-900">stale</span>
-        {% endif %}
-      </h2>
-      {% if section.stale %}
-        <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          This group left <code>hosts.yml</code>. Nothing fetches its rules.
-          Add the group back in Ansible, or remove these rules.
-        </p>
-      {% endif %}
+      <h2 class="text-lg font-semibold">{{ section.name }}</h2>
       <table class="mt-2 w-full text-left text-sm">
         <thead class="border-b border-slate-300 dark:border-slate-700">
           <tr>
@@ -93,8 +82,8 @@
   {% endfor %}
 
   <p class="text-sm text-slate-600 dark:text-slate-400">
-    Rules apply the moment you save them. Group names and membership come from
-    Ansible: a change there needs a deploy, then
-    <code>unbound-control reload_keep_cache</code> on the router.
+    Rules apply within a second of saving them. Which clients a group reaches
+    is set by the tags in <code>unbound.conf</code>, so a change there needs an
+    Ansible deploy.
   </p>
 </div>

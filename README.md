@@ -16,19 +16,22 @@ See [the TODO](TODO.md) for the design of record and the outstanding work.
 
 ```
 cp .env.example .env
-just hosts
 just manage migrate
 just manage createsuperuser
 just dev
 just worker
+just ingest
 just unbound
 ```
 
 Then open `http://127.0.0.1:8000/rules/` and sign in.
 
-The last three run at once, in their own terminals. `serve` runs all three parts
-in one process, but development keeps them apart so a traceback lands where you
-can see it.
+`just dev`, `just worker`, `just ingest`, and `just unbound` run at once, in
+their own terminals. `serve` runs the first three in one process, but
+development keeps them apart so a traceback lands where you can see it.
+
+Migrations create one group, `home`, which is why the dev resolver fetches
+`/rpz/home.zone`. Its `zone` field is what `unbound.conf` calls that zone.
 
 `just unbound` runs a real resolver that fetches its rules from `just dev`. It
 reaches the host across the docker bridge, so the server binds `0.0.0.0` and

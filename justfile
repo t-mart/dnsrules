@@ -4,12 +4,16 @@ default: check
 
 # run the development server, rebuilding css on every change. It binds
 # DNSRULES_BIND, because `just unbound` fetches the rules across the bridge.
-dev: var
+dev:
     uv run dnsrules tailwind runserver $DNSRULES_BIND
 
 # run the recurring jobs. `serve` does this in a thread; development does not.
 worker:
     uv run dnsrules worker
+
+# write the query log from the dnstap stream. `serve` does this in a thread too.
+ingest:
+    uv run dnsrules ingest
 
 # run a management command with the development environment loaded
 manage *ARGS:
@@ -36,33 +40,6 @@ dig *ARGS:
 # print the answer flags that dnstap carries, one line per query
 probe:
     uv run python dev/probe.py
-
-# stand in for the router's /etc/unbound, which no development machine has
-var:
-    mkdir --parents var
-
-# write a stand-in for the hosts file that Ansible renders on the router
-hosts: var
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cat > var/hosts.yml <<EOF
-    groups:
-      - name: home
-        zone: runtime_rules
-    hosts:
-      - name: clove
-        addresses: [10.0.0.2, 100.71.4.9]
-        groups: [home]
-    networks:
-      - name: lan
-        cidr: 10.0.0.0/24
-      - name: dhcp pool
-        cidr: 10.0.1.0/24
-        managed: false
-      - name: tailnet
-        cidr: 100.64.0.0/10
-    EOF
-    echo "Wrote var/hosts.yml."
 
 # regenerate the dnstap protobuf module. Needs protoc; the output is committed.
 # The stub comes too: protoc builds the classes at import time, so a type

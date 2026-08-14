@@ -81,15 +81,21 @@
       {% for row, client in rows %}
         <tr class="border-b border-slate-200 dark:border-slate-800">
           <td class="py-1 whitespace-nowrap" title="{{ row.at }}">{{ row.at|date:"H:i:s" }}</td>
-          <td class="py-1">
-            {% if client %}
-              <span title="{{ client.address }}">{{ client.name }}</span>
-              {% if not client.managed %}
-                <span class="rounded bg-amber-200 px-1 text-xs text-amber-900"
-                      title="No group covers this address, so no rule reaches it.">unmanaged</span>
-              {% endif %}
+          <td class="py-1 whitespace-nowrap">
+            {% if row.client == naming %}
+              <form class="flex items-center gap-1" hx-post="{% url 'queries.client' %}">
+                {% csrf_token %}
+                <input type="hidden" name="address" value="{{ row.client }}">
+                <input class="w-28" name="name" value="{{ client }}" placeholder="{{ row.client }}" autofocus>
+                <button class="underline underline-offset-4" type="submit">Save</button>
+              </form>
             {% else %}
-              {{ row.client }}
+              <button class="underline decoration-dotted underline-offset-4"
+                      type="button"
+                      title="{{ row.client }}. Click to name it."
+                      hx-get="{% url 'queries' %}?{{ query }}&naming={{ row.client }}">
+                {% if client %}{{ client }}{% else %}{{ row.client }}{% endif %}
+              </button>
             {% endif %}
           </td>
           <td class="py-1 font-mono">{{ row.qname }}</td>

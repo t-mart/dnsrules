@@ -9,7 +9,6 @@ from django.core.management import call_command
 from django.db import IntegrityError
 from django.utils import timezone
 
-from dnsrules.hosts import InvalidHosts
 from dnsrules.rules import services
 from dnsrules.rules.models import Group, Rule, Source
 from dnsrules.unbound.control import ControlError
@@ -20,8 +19,8 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
-def kids():
-    return Group.objects.create(name="kids")
+def kids(groups):
+    return Group.objects.get(name="kids")
 
 
 def make(group, domain, action=Action.BLOCK, expires_at=None):
@@ -49,7 +48,7 @@ def test_clean_reports_a_bad_domain_as_a_field_error():
 
 
 def test_a_domain_holds_one_rule_in_each_group(kids):
-    adults = Group.objects.create(name="adults")
+    adults = Group.objects.get(name="adults")
     make(kids, "example.com")
     make(adults, "example.com")
     with pytest.raises(IntegrityError):
@@ -76,13 +75,7 @@ def test_defaults_are_a_permanent_manual_block(kids):
     assert rule.is_expired is False
 
 
-def test_reconcile_creates_a_row_for_each_group(zone_settings):
-    services.reconcile()
-    assert [group.name for group in Group.objects.all()] == ["adults", "kids"]
-
-
 def test_zone_text_holds_only_that_group(zone_settings):
-    services.reconcile()
     kids, adults = Group.objects.get(name="kids"), Group.objects.get(name="adults")
     make(kids, "block.example.com", Action.BLOCK)
     make(kids, "allow.example.com", Action.ALLOW)
@@ -97,13 +90,11 @@ def test_zone_text_holds_only_that_group(zone_settings):
 
 
 def test_zone_text_with_no_rules_is_the_header_alone(zone_settings):
-    services.reconcile()
     assert rules_in(services.zone_text(Group.objects.get(name="kids"))) == []
 
 
 def test_reconcile_raises_every_serial(zone_settings):
     """unbound takes a transfer only when the serial rises."""
-    services.reconcile()
     before = [group.serial for group in Group.objects.order_by("name")]
     services.reconcile()
     after = [group.serial for group in Group.objects.order_by("name")]
@@ -112,7 +103,7 @@ def test_reconcile_raises_every_serial(zone_settings):
 
 def test_reconcile_tells_unbound_about_every_zone(zone_settings, transfers):
     services.reconcile()
-    assert transfers == ["rules_kids", "rules_adults"]
+    assert transfers == ["rules_adults", "rules_kids"]
 
 
 def test_reconcile_raises_the_serial_before_it_asks_for_a_transfer(
@@ -131,28 +122,7 @@ def test_reconcile_raises_the_serial_before_it_asks_for_a_transfer(
     assert seen == [2, 2, 3, 3]
 
 
-def test_stale_groups_reads_the_file(zone_settings):
-    guests = Group.objects.create(name="guests")
-    services.reconcile()
-    entries = services.read_hosts()
-    assert list(services.stale_groups(entries)) == [guests]
-
-
-def test_reconcile_does_not_ask_for_a_stale_group(zone_settings, transfers):
-    """A group that left `hosts.yml` has no zone for unbound to fetch."""
-    Group.objects.create(name="guests")
-    services.reconcile()
-    assert "guests" not in transfers
-
-
-def test_reconcile_refuses_to_run_without_a_hosts_file(zone_settings, tmp_path):
-    zone_settings.HOSTS_PATH = tmp_path / "missing.yml"
-    with pytest.raises(InvalidHosts):
-        services.reconcile()
-
-
 def test_reconcile_reports_a_failed_transfer(zone_settings, monkeypatch):
-    services.reconcile()
     kids = Group.objects.get(name="kids")
     make(kids, "example.com")
 
@@ -167,7 +137,6 @@ def test_reconcile_reports_a_failed_transfer(zone_settings, monkeypatch):
 
 
 def test_prune_deletes_expired_rules_and_tells_unbound(zone_settings, transfers):
-    services.reconcile()
     kids = Group.objects.get(name="kids")
     make(kids, "keep.example.com")
     make(kids, "drop.example.com", expires_at=timezone.now() - timedelta(minutes=1))
@@ -176,11 +145,10 @@ def test_prune_deletes_expired_rules_and_tells_unbound(zone_settings, transfers)
     assert services.prune() == 1
 
     assert rules_in(services.zone_text(kids)) == ["keep.example.com CNAME ."]
-    assert transfers == ["rules_kids", "rules_adults"]
+    assert transfers == ["rules_adults", "rules_kids"]
 
 
 def test_prune_with_nothing_to_do_tells_unbound_nothing(zone_settings, transfers):
-    services.reconcile()
     make(Group.objects.get(name="kids"), "keep.example.com")
     transfers.clear()
     assert services.prune() == 0
@@ -194,7 +162,6 @@ def export(**options):
 
 
 def test_export_writes_yaml_by_default(zone_settings):
-    services.reconcile()
     make(Group.objects.get(name="kids"), "ads.example.com")
     assert yaml.safe_load(export()) == [
         {
@@ -209,7 +176,6 @@ def test_export_writes_yaml_by_default(zone_settings):
 
 
 def test_export_writes_json_when_asked(zone_settings):
-    services.reconcile()
     make(Group.objects.get(name="kids"), "ads.example.com")
     text = export(format="json")
     assert text.lstrip().startswith("[")

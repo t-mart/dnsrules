@@ -15,6 +15,7 @@ urlpatterns = [
     path("rpz/<str:name>.zone", rules_views.rpz, name="rpz"),
     path("queries/", queries_views.index, name="queries"),
     path("queries/rule/", queries_views.rule, name="queries.rule"),
+    path("queries/client/", queries_views.client, name="queries.client"),
     path("login/", auth_views.LoginView.as_view(), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("admin/", admin.site.urls),
