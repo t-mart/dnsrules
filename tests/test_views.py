@@ -1,6 +1,11 @@
+from datetime import timedelta
+
 import pytest
 from conftest import rules_in
+from django.utils import timezone
 
+from dnsrules.core import jobs
+from dnsrules.core.models import Job
 from dnsrules.rules import services
 from dnsrules.rules.models import Group, Rule
 from dnsrules.unbound.zone import Action
@@ -161,21 +166,28 @@ def test_a_missing_hosts_file_reports_itself(client, admin, zone_settings, tmp_p
     assert "does not exist" in response.content.decode()
 
 
-def test_a_failed_reload_keeps_the_rule_and_says_so(
-    client, admin, zone_settings, monkeypatch
-):
-    from dnsrules.unbound.control import ControlError
-
+def test_saving_a_rule_asks_the_worker_to_tell_unbound(client, admin, zone_settings):
+    """The page never reaches unbound. It sets the job due and moves on."""
     client.get("/rules/")
-    kids = Group.objects.get(name="kids")
+    jobs.sync()
+    Job.objects.filter(name="transfer").update(
+        run_at=timezone.now() + timedelta(hours=3)
+    )
 
-    def boom(host, port, zone, **kwargs):
-        raise ControlError("connection refused")
+    add(client, Group.objects.get(name="kids"), "ads.example.com")
 
-    monkeypatch.setattr(services.control, "auth_zone_transfer", boom)
+    assert Job.objects.get(name="transfer").run_at <= timezone.now()
 
-    response = add(client, kids, "ads.example.com")
+
+def test_a_failed_transfer_keeps_the_rule_and_says_so(client, admin, zone_settings):
+    client.get("/rules/")
+    jobs.sync()
+    Job.objects.filter(name="transfer").update(
+        last_error="ControlError: connection refused"
+    )
+
+    response = add(client, Group.objects.get(name="kids"), "ads.example.com")
 
     assert response.status_code == 200
     assert Rule.objects.count() == 1
-    assert "unbound did not fetch it" in response.content.decode()
+    assert "connection refused" in response.content.decode()

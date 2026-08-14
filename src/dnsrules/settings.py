@@ -45,7 +45,6 @@ CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 # the site, and nftables decides who does. ALLOWED_HOSTS is the check that
 # matters here, because it stops DNS rebinding.
 BIND = env("BIND", "0.0.0.0:8000")
-WORKERS = int(env("WORKERS", "2"))
 
 INSTALLED_APPS = [
     "django.contrib.admin",

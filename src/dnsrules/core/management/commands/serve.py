@@ -1,21 +1,42 @@
-"""Run the website under gunicorn.
+"""Run the whole thing in one process.
 
 gunicorn goes through its Python API, not its console script, so the install
-carries one entry point and the unit file names the same binary as every other
-command.
+carries one entry point.
 
-Errors go to stderr, which the unit sends to the journal. There is no access
-log: the journal already has one line for each restart, and a busy access log
-buries it.
+One worker, and the background threads start inside it. gunicorn forks its
+workers, and a database connection opened before that fork would be shared by
+two processes, which corrupts the protocol. `post_worker_init` runs after the
+fork, so nothing is inherited. At three queries a second and one reader, one
+worker with threads has room to spare.
+
+Errors go to stderr. There is no access log: one line for each restart is worth
+more than a busy log that buries it.
 """
 
-import os
+import threading
 from argparse import ArgumentParser
 
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 from django.core.wsgi import get_wsgi_application
 from gunicorn.app.base import BaseApplication
+
+from dnsrules.core import jobs
+from dnsrules.queries import services
+
+WORKERS = 1
+THREADS = 8
+
+
+def _background(_worker) -> None:
+    """Start the jobs and the ingest, once, inside the forked worker."""
+    stop = threading.Event()
+    threading.Thread(target=jobs.worker, args=(stop,), daemon=True).start()
+    threading.Thread(
+        target=services.listen,
+        args=(settings.DNSTAP_HOST, settings.DNSTAP_PORT),
+        daemon=True,
+    ).start()
 
 
 class Application(BaseApplication):
@@ -36,20 +57,18 @@ class Application(BaseApplication):
 
 
 class Command(BaseCommand):
-    help = "Serve the website with gunicorn."
+    help = "Serve the website, the query log ingest, and the jobs."
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument("--bind", default=settings.BIND)
-        parser.add_argument("--workers", type=int, default=settings.WORKERS)
+        parser.add_argument("--threads", type=int, default=THREADS)
 
     def handle(self, *args, **options) -> None:
-        # settings.py generates a key per process when the environment has
-        # none. Two workers then hold two keys, and each rejects the other's
-        # session cookie, so a login lasts until the next request.
-        if options["workers"] > 1 and not os.environ.get("DNSRULES_SECRET_KEY"):
-            raise CommandError(
-                "More than one worker needs DNSRULES_SECRET_KEY. Add a line "
-                "from `dnsrules secret` to the environment file, or pass "
-                "--workers 1."
-            )
-        Application({"bind": options["bind"], "workers": options["workers"]}).run()
+        Application(
+            {
+                "bind": options["bind"],
+                "workers": WORKERS,
+                "threads": options["threads"],
+                "post_worker_init": _background,
+            }
+        ).run()

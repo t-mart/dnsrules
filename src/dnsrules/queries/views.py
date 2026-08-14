@@ -16,13 +16,13 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 from dnsrules import names
+from dnsrules.core import jobs
 from dnsrules.hosts import InvalidHosts
 from dnsrules.queries.models import Query
 from dnsrules.rules import services
 from dnsrules.rules.forms import DURATIONS
 from dnsrules.rules.models import Group, Rule, Source
 from dnsrules.rules.views import Request
-from dnsrules.unbound.control import ControlError
 from dnsrules.unbound.domain import InvalidDomain, normalize
 from dnsrules.unbound.zone import Action
 
@@ -150,17 +150,8 @@ def rule(request: Request) -> HttpResponse:
         },
     )
     verb = "blocked" if action == Action.BLOCK.value else "allowed"
-    try:
-        services.reconcile()
-    except (ControlError, InvalidHosts, OSError) as problem:
-        logger.exception("The reconcile after a query log rule failed.")
-        return _render(
-            request,
-            _context(
-                request,
-                error=f"The rule is saved, but unbound was not updated: {problem}",
-            ),
-        )
+    # The worker tells unbound. This page only records what the rule is.
+    jobs.nudge("transfer")
     return _render(
         request, _context(request, note=f"{domain} is {verb} for {group.name}.")
     )

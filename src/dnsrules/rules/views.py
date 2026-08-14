@@ -13,11 +13,12 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_http_methods
 from django_htmx.middleware import HtmxDetails
 
+from dnsrules.core import jobs
+from dnsrules.core.models import Job
 from dnsrules.hosts import Hosts, InvalidHosts
 from dnsrules.rules import services
 from dnsrules.rules.forms import RuleForm
 from dnsrules.rules.models import Group, Rule
-from dnsrules.unbound.control import ControlError
 
 logger = logging.getLogger(__name__)
 
@@ -66,21 +67,19 @@ def _render(request: Request, context: dict, status: int = 200) -> HttpResponse:
 
 
 def _reconcile() -> str | None:
-    """Tell unbound to fetch the zone again. Returns a message when that fails.
+    """Ask the worker to tell unbound. Returns the last failure, if any.
 
-    The row is saved already, so a failure here is a warning on the page rather
-    than a 500. unbound refetches on the SOA refresh regardless, so the rule
-    still lands.
+    The page never reaches unbound itself. It sets the job due and reads what
+    the last run did, so a resolver that is slow or down cannot hold up a save.
     """
-    try:
-        services.reconcile()
-    except (ControlError, InvalidHosts, OSError) as problem:
-        logger.exception("The transfer after a rule change failed.")
-        return (
-            f"The rule is saved, but unbound did not fetch it: {problem}. "
-            f"It applies within the hour."
-        )
-    return None
+    jobs.nudge("transfer")
+    job = Job.objects.filter(name="transfer").first()
+    if job is None or not job.last_error:
+        return None
+    return (
+        f"The rule is saved, but the last transfer to unbound failed: "
+        f"{job.last_error}. It applies within the hour regardless."
+    )
 
 
 @require_http_methods(["GET"])

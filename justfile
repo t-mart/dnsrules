@@ -2,9 +2,14 @@ set dotenv-load := true
 
 default: check
 
-# run the development server, rebuilding css on every change
+# run the development server, rebuilding css on every change. It binds
+# DNSRULES_BIND, because `just unbound` fetches the rules across the bridge.
 dev: var
-    uv run dnsrules tailwind runserver
+    uv run dnsrules tailwind runserver $DNSRULES_BIND
+
+# run the recurring jobs. `serve` does this in a thread; development does not.
+worker:
+    uv run dnsrules worker
 
 # run a management command with the development environment loaded
 manage *ARGS:
@@ -99,8 +104,8 @@ fix:
     uv run ruff format .
     uv run ruff check --fix .
 
-# build the wheel and confirm it carries the templates, static files, and units
+# build the wheel and confirm it carries the templates and static files
 wheel:
     rm -rf dist
     uv build --wheel
-    unzip -l dist/*.whl | grep -E 'templates/|static/|units/'
+    unzip -l dist/*.whl | grep -E 'templates/|static/'

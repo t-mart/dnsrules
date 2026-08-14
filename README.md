@@ -20,10 +20,15 @@ just hosts
 just manage migrate
 just manage createsuperuser
 just dev
+just worker
 just unbound
 ```
 
 Then open `http://127.0.0.1:8000/rules/` and sign in.
+
+The last three run at once, in their own terminals. `serve` runs all three parts
+in one process, but development keeps them apart so a traceback lands where you
+can see it.
 
 `just unbound` runs a real resolver that fetches its rules from `just dev`. It
 reaches the host across the docker bridge, so the server binds `0.0.0.0` and
@@ -100,12 +105,39 @@ whole thing, SOA included. One rule is one line:
 | Block with no data | `<domain> CNAME *.`           | NOERROR, no answer |
 | Allow              | `<domain> CNAME rpz-passthru.` | Resolve, and skip every later zone |
 
-A rule change raises the serial, then sends `auth_zone_transfer runtime_rules`
-over the control interface. unbound refetches at once. RPZ is applied before the
-cache, so a removed rule takes effect even while the old answer is still cached.
+A rule change sets the transfer job due. The worker raises the serial and sends
+`auth_zone_transfer runtime_rules` over the control interface, and unbound
+refetches at once. RPZ is applied before the cache, so a removed rule takes
+effect even while the old answer is still cached.
+
+One process talks to unbound, so a slow or unreachable resolver never holds up a
+page. The website reports what the last transfer did and moves on.
 
 The trigger is an optimisation, not the mechanism. A lost trigger costs one SOA
 refresh interval, and never correctness.
+
+## Jobs
+
+Three recurring jobs, in one Postgres table. There is no broker and no second
+process.
+
+| Job | Every | Does |
+| --- | --- | --- |
+| `transfer` | 1 hour | Raises the serials and tells unbound |
+| `prune` | 1 minute | Deletes expired rules |
+| `retention` | 1 day | Archives the query log and moves its partitions on |
+
+A worker claims the next due row with `FOR UPDATE SKIP LOCKED` and holds that
+lock until the job returns, so a second worker takes the next job rather than
+the same one. A job that raises is recorded in `last_error` and comes back in
+30 seconds, because a worker that dies on one bad job stops every other.
+
+`SCHEDULE` in `core/jobs.py` names each target as a string. The jobs live in the
+other apps, and those apps import this one.
+
+`serve` runs the website, the ingest, and the jobs in one process. It takes one
+gunicorn worker on purpose: the threads start from `post_worker_init`, after the
+fork, so no database connection is ever shared by two processes.
 
 Nothing builds a line from raw input. The domain is validated, and the right
 hand side comes from the fixed table above.

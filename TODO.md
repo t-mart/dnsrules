@@ -75,22 +75,30 @@ clients outside it. Phase 9 adds the tags that make a group mean something.
 
 ## 2. One process, jobs in Postgres
 
-- [ ] `Job` model: name, run_at, interval, last_run, last_error.
-- [ ] Claim with `FOR UPDATE SKIP LOCKED`, run, then set the next `run_at`.
-- [ ] Three jobs: transfer, prune expired rules, delete old query rows.
-- [ ] A rule edit sets `run_at = now()` on the transfer job. Only the worker
-      talks to unbound.
-- [ ] `serve`: migrate, start the ingest thread, start the worker thread, then
-      run gunicorn.
-- [ ] Delete `src/dnsrules/units/`, the `units` command, and `test_units.py`.
+- [x] `Job` model: name, run_at, last_run, last_error. The interval lives in
+      `SCHEDULE`, because it is code, not data.
+- [x] Claim with `FOR UPDATE SKIP LOCKED`, run, then set the next `run_at`. The
+      lock is held for the whole run.
+- [x] A failed job comes back after `RETRY`, not at its next turn.
+- [x] Three jobs: transfer, prune, retention.
+- [x] A rule edit sets `run_at = now()` on the transfer job. Only the worker
+      talks to unbound, and the page reads `last_error`.
+- [x] `serve`: one gunicorn worker, with the jobs and the ingest started from
+      `post_worker_init` so nothing is inherited across the fork.
+- [x] `worker` command, for development next to `runserver`.
+- [x] Delete `src/dnsrules/units/`, the `units` command, and `test_units.py`.
+- [ ] Run migrations at startup, so a deploy needs no separate step.
 
 ## 3. Scrap the archive
 
 - [ ] Drop `queries_hour` and `queries_top`, `rollups.py`, and `partitions.py`.
 - [ ] Drop the `rollup` and `partitions` commands, and their tests.
 - [ ] One unpartitioned table. Keep the BRIN index on the timestamp.
-- [ ] Delete rows past 30 days from the daily job.
+- [ ] `queries.services.retention` becomes one DELETE past 30 days. The job is
+      wired already, so only its body changes.
 - [ ] Drop `DNSRULES_LOG_MAX_BYTES`.
+- [ ] Delete the migrations and generate one initial per app. The hand written
+      partition SQL goes with them.
 
 ## 4. Mark a row blocked
 
