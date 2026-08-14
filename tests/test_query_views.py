@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from dnsrules.queries import partitions
 from dnsrules.queries.models import Query
+from dnsrules.rules import services
 from dnsrules.rules.models import Group, Rule, Source
 from dnsrules.unbound.zone import Action
 
@@ -91,9 +92,7 @@ def test_a_client_in_the_dhcp_pool_is_marked_unmanaged(client, admin, logged):
     assert "unmanaged" in body
 
 
-def test_blocking_from_a_row_writes_a_rule_and_the_zone(
-    client, admin, logged, zone_files
-):
+def test_blocking_from_a_row_writes_a_rule_and_reaches_the_zone(client, admin, logged):
     client.get("/rules/")  # gives each group in the hosts file a row
 
     response = client.post(
@@ -107,10 +106,12 @@ def test_blocking_from_a_row_writes_a_rule_and_the_zone(
     assert rule.action == Action.BLOCK
     assert rule.source == Source.QUERY_LOG
     assert rule.expires_at is None
-    assert "ads.example.com CNAME ." in zone_files["kids"].read_text()
+    assert "ads.example.com CNAME ." in services.zone_text(
+        Group.objects.get(name="kids")
+    )
 
 
-def test_allowing_from_a_row_replaces_the_block(client, admin, logged, zone_files):
+def test_allowing_from_a_row_replaces_the_block(client, admin, logged):
     client.get("/rules/")
     post = {"domain": "ads.example.com", "group": "kids"}
     client.post("/queries/rule/", post | {"action": Action.BLOCK}, **HTMX)
@@ -118,7 +119,8 @@ def test_allowing_from_a_row_replaces_the_block(client, admin, logged, zone_file
 
     assert Rule.objects.count() == 1
     assert Rule.objects.get().action == Action.ALLOW
-    assert "ads.example.com CNAME rpz-passthru." in zone_files["kids"].read_text()
+    kids = Group.objects.get(name="kids")
+    assert "ads.example.com CNAME rpz-passthru." in services.zone_text(kids)
 
 
 def test_a_duration_makes_the_rule_temporary(client, admin, logged):

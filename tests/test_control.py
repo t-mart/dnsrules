@@ -1,16 +1,13 @@
-import shutil
 import socket
-import tempfile
 import threading
-from pathlib import Path
 
 import pytest
 
-from dnsrules.unbound.control import VERSION, ControlError, auth_zone_reload, command
+from dnsrules.unbound.control import VERSION, ControlError, auth_zone_transfer, command
 
 
 class FakeUnbound:
-    """A unix socket that answers one command, the way unbound does.
+    """A TCP listener that answers one command, the way unbound does.
 
     A reply of None accepts the connection and then says nothing, which is what
     a wedged server looks like.
@@ -20,11 +17,8 @@ class FakeUnbound:
         self.reply = reply
         self.received = None
         self._done = threading.Event()
-        self.directory = tempfile.mkdtemp()
-        self.path = Path(self.directory) / "control.sock"
-        self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._server.bind(str(self.path))
-        self._server.listen(1)
+        self._server = socket.create_server(("127.0.0.1", 0))
+        self.host, self.port = self._server.getsockname()[:2]
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
 
@@ -44,7 +38,6 @@ class FakeUnbound:
         self._done.set()
         self._server.close()
         self._thread.join(timeout=5)
-        shutil.rmtree(self.directory, ignore_errors=True)
 
 
 @pytest.fixture
@@ -61,31 +54,37 @@ def unbound():
         server.close()
 
 
-def test_auth_zone_reload_sends_the_protocol_line(unbound):
+@pytest.fixture
+def closed_port():
+    """A port nothing listens on. Bound, read for its number, then released."""
+    with socket.create_server(("127.0.0.1", 0)) as probe:
+        return probe.getsockname()[1]
+
+
+def test_auth_zone_transfer_sends_the_protocol_line(unbound):
     server = unbound()
-    assert auth_zone_reload(server.path, "runtime_rules") == "ok\n"
-    assert server.received == f"{VERSION} auth_zone_reload runtime_rules\n"
+    assert auth_zone_transfer(server.host, server.port, "runtime_rules") == "ok\n"
+    assert server.received == f"{VERSION} auth_zone_transfer runtime_rules\n"
 
 
 def test_command_raises_on_an_error_reply(unbound):
     server = unbound("error no auth-zone runtime_rules\n")
     with pytest.raises(ControlError, match="no auth-zone"):
-        auth_zone_reload(server.path, "runtime_rules")
+        auth_zone_transfer(server.host, server.port, "runtime_rules")
 
 
-def test_command_raises_when_the_socket_is_absent(tmp_path):
-    missing = tmp_path / "control.sock"
-    with pytest.raises(ControlError, match=r"control\.sock"):
-        auth_zone_reload(missing, "runtime_rules")
+def test_command_raises_when_nothing_listens(closed_port):
+    with pytest.raises(ControlError, match=str(closed_port)):
+        auth_zone_transfer("127.0.0.1", closed_port, "runtime_rules")
 
 
 def test_command_raises_when_unbound_never_answers(unbound):
     server = unbound(reply=None)
     with pytest.raises(ControlError):
-        auth_zone_reload(server.path, "runtime_rules", timeout=0.2)
+        auth_zone_transfer(server.host, server.port, "runtime_rules", timeout=0.2)
 
 
-def test_command_refuses_a_newline_before_it_connects(tmp_path):
+def test_command_refuses_a_newline_before_it_connects(closed_port):
     """A newline in the command text would smuggle in a second command."""
     with pytest.raises(ControlError, match="newline"):
-        command(tmp_path / "control.sock", "auth_zone_reload x\nstop")
+        command("127.0.0.1", closed_port, "auth_zone_transfer x\nstop")

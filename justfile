@@ -39,15 +39,11 @@ hosts: var
     cat > var/hosts.yml <<EOF
     groups:
       - name: home
-        zone: rules_home
-        zonefile: $PWD/var/home.zone
-      - name: kids
-        zone: rules_kids
-        zonefile: $PWD/var/kids.zone
+        zone: runtime_rules
     hosts:
       - name: clove
         addresses: [10.0.0.2, 100.71.4.9]
-        groups: [kids]
+        groups: [home]
     networks:
       - name: lan
         cidr: 10.0.0.0/24

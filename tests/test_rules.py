@@ -81,7 +81,7 @@ def test_reconcile_creates_a_row_for_each_group(zone_settings):
     assert [group.name for group in Group.objects.all()] == ["adults", "kids"]
 
 
-def test_reconcile_writes_each_group_to_its_own_file(zone_settings, zone_files):
+def test_zone_text_holds_only_that_group(zone_settings):
     services.reconcile()
     kids, adults = Group.objects.get(name="kids"), Group.objects.get(name="adults")
     make(kids, "block.example.com", Action.BLOCK)
@@ -89,40 +89,46 @@ def test_reconcile_writes_each_group_to_its_own_file(zone_settings, zone_files):
     make(adults, "nodata.example.com", Action.BLOCK_NODATA)
     make(kids, "gone.example.com", expires_at=timezone.now() - timedelta(minutes=1))
 
-    written = services.reconcile()
-
-    assert rules_in(written["kids"]) == [
+    assert rules_in(services.zone_text(kids)) == [
         "allow.example.com CNAME rpz-passthru.",
         "block.example.com CNAME .",
     ]
-    assert rules_in(written["adults"]) == ["nodata.example.com CNAME *."]
-    assert zone_files["kids"].read_text() == written["kids"]
-    assert zone_files["adults"].read_text() == written["adults"]
+    assert rules_in(services.zone_text(adults)) == ["nodata.example.com CNAME *."]
 
 
-def test_reconcile_keeps_the_ansible_header(zone_settings, ansible_zone):
-    written = services.reconcile()
-    make(Group.objects.get(name="kids"), "example.com")
-    written = services.reconcile()
-    assert written["kids"].startswith(ansible_zone.rstrip("\n"))
-
-
-def test_reconcile_with_no_rules_writes_the_header_alone(zone_settings):
-    assert rules_in(services.reconcile()["kids"]) == []
-
-
-def test_reconcile_is_idempotent(zone_settings):
+def test_zone_text_with_no_rules_is_the_header_alone(zone_settings):
     services.reconcile()
-    make(Group.objects.get(name="kids"), "example.com")
-    assert services.reconcile() == services.reconcile()
+    assert rules_in(services.zone_text(Group.objects.get(name="kids"))) == []
 
 
-def test_reconcile_skips_a_group_that_left_the_file(zone_settings, caplog):
-    make(Group.objects.create(name="guests"), "example.com")
-    written = services.reconcile()
-    assert "guests" not in written
-    assert "guests" in caplog.text
-    assert "stale" in caplog.text
+def test_reconcile_raises_every_serial(zone_settings):
+    """unbound takes a transfer only when the serial rises."""
+    services.reconcile()
+    before = [group.serial for group in Group.objects.order_by("name")]
+    services.reconcile()
+    after = [group.serial for group in Group.objects.order_by("name")]
+    assert after == [serial + 1 for serial in before]
+
+
+def test_reconcile_tells_unbound_about_every_zone(zone_settings, transfers):
+    services.reconcile()
+    assert transfers == ["rules_kids", "rules_adults"]
+
+
+def test_reconcile_raises_the_serial_before_it_asks_for_a_transfer(
+    zone_settings, transfers, monkeypatch
+):
+    """A transfer that arrives before the bump would fetch the old zone."""
+    seen = []
+
+    def record(host, port, zone, **kwargs):
+        seen.append(Group.objects.get(name="kids").serial)
+        return "ok\n"
+
+    monkeypatch.setattr(services.control, "auth_zone_transfer", record)
+    services.reconcile()
+    services.reconcile()
+    assert seen == [2, 2, 3, 3]
 
 
 def test_stale_groups_reads_the_file(zone_settings):
@@ -132,83 +138,53 @@ def test_stale_groups_reads_the_file(zone_settings):
     assert list(services.stale_groups(entries)) == [guests]
 
 
+def test_reconcile_does_not_ask_for_a_stale_group(zone_settings, transfers):
+    """A group that left `hosts.yml` has no zone for unbound to fetch."""
+    Group.objects.create(name="guests")
+    services.reconcile()
+    assert "guests" not in transfers
+
+
 def test_reconcile_refuses_to_run_without_a_hosts_file(zone_settings, tmp_path):
     zone_settings.HOSTS_PATH = tmp_path / "missing.yml"
     with pytest.raises(InvalidHosts):
         services.reconcile()
 
 
-def test_reconcile_skips_the_reload_when_no_socket_is_set(zone_settings, caplog):
+def test_reconcile_reports_a_failed_transfer(zone_settings, monkeypatch):
     services.reconcile()
-    assert "skipped" in caplog.text
+    kids = Group.objects.get(name="kids")
+    make(kids, "example.com")
 
-
-def test_reconcile_reloads_every_zone_when_a_socket_is_set(zone_settings, monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        services.control,
-        "auth_zone_reload",
-        lambda path, name: calls.append((str(path), name)),
-    )
-    zone_settings.UNBOUND_CONTROL_SOCKET = "/run/unbound/control.sock"
-    services.reconcile()
-    assert calls == [
-        ("/run/unbound/control.sock", "rules_kids"),
-        ("/run/unbound/control.sock", "rules_adults"),
-    ]
-
-
-def test_reconcile_reports_a_failed_reload(zone_settings, zone_files, monkeypatch):
-    services.reconcile()
-    make(Group.objects.get(name="kids"), "example.com")
-
-    def boom(path, name):
+    def boom(host, port, zone, **kwargs):
         raise ControlError("connection refused")
 
-    monkeypatch.setattr(services.control, "auth_zone_reload", boom)
-    zone_settings.UNBOUND_CONTROL_SOCKET = "/run/unbound/control.sock"
+    monkeypatch.setattr(services.control, "auth_zone_transfer", boom)
     with pytest.raises(ControlError):
         services.reconcile()
-    # The file is already written. The next reconcile converges the two.
-    assert "example.com CNAME ." in zone_files["kids"].read_text()
+    # The rule is in the zone already. unbound fetches it at the next refresh.
+    assert "example.com CNAME ." in services.zone_text(kids)
 
 
-def test_reconcile_leaves_the_files_alone_when_the_read_fails(
-    zone_settings, zone_files, monkeypatch
-):
-    """An empty render would silently drop every rule."""
-    services.reconcile()
-    make(Group.objects.get(name="kids"), "example.com")
-    services.reconcile()
-    written = zone_files["kids"].read_text()
-
-    def boom(*args, **kwargs):
-        raise OSError("the database is unreachable")
-
-    monkeypatch.setattr(services.Rule.objects, "active", boom)
-    with pytest.raises(OSError, match="unreachable"):
-        services.reconcile()
-    assert zone_files["kids"].read_text() == written
-
-
-def test_prune_deletes_expired_rules_and_rewrites(zone_settings, zone_files):
+def test_prune_deletes_expired_rules_and_tells_unbound(zone_settings, transfers):
     services.reconcile()
     kids = Group.objects.get(name="kids")
     make(kids, "keep.example.com")
     make(kids, "drop.example.com", expires_at=timezone.now() - timedelta(minutes=1))
+    transfers.clear()
 
     assert services.prune() == 1
 
-    assert rules_in(zone_files["kids"].read_text()) == ["keep.example.com CNAME ."]
+    assert rules_in(services.zone_text(kids)) == ["keep.example.com CNAME ."]
+    assert transfers == ["rules_kids", "rules_adults"]
 
 
-def test_prune_with_nothing_to_do_leaves_the_files_untouched(zone_settings, zone_files):
+def test_prune_with_nothing_to_do_tells_unbound_nothing(zone_settings, transfers):
     services.reconcile()
     make(Group.objects.get(name="kids"), "keep.example.com")
-    services.reconcile()
-    before = zone_files["kids"].stat().st_mtime_ns
+    transfers.clear()
     assert services.prune() == 0
-    assert zone_files["kids"].stat().st_mtime_ns == before
+    assert transfers == []
 
 
 def export(**options):

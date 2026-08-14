@@ -4,8 +4,8 @@ from dnsrules.rules.services import reconcile
 
 
 class Command(BaseCommand):
-    help = "Render every active rule to its group's zone file and reload unbound."
+    help = "Raise every zone serial, then tell unbound to fetch the rules again."
 
     def handle(self, *args, **options) -> None:
-        written = reconcile()
-        self.stdout.write(f"Wrote {len(written)} zone files: {', '.join(written)}")
+        zones = reconcile()
+        self.stdout.write(f"Told unbound to fetch {len(zones)}: {', '.join(zones)}")

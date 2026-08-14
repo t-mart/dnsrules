@@ -1,11 +1,11 @@
-"""Rules live here, not in the zone file.
+"""Rules live here. The zone is rendered output.
 
-Two browser tabs, the web workers, and the prune timer all change rules. A file
-makes that a read-modify-write race that needs its own locking. A transaction
-solves it already, and the rules page can then join against the query log to
-show how often each rule fires.
+Two browser tabs and the web workers all change rules. A file makes that a
+read-modify-write race that needs its own locking. A transaction solves it
+already, and the rules page can then join against the query log to show how
+often each rule fires.
 
-The zone file is rendered output. See `dnsrules.rules.services`.
+See `dnsrules.rules.services` for what unbound fetches.
 """
 
 from django.core.exceptions import ValidationError
@@ -32,13 +32,15 @@ class Source(models.TextChoices):
 class Group(models.Model):
     """A group from `hosts.yml`.
 
-    Ansible owns the name, the membership, and the zone file path. This row
-    exists so a rule can point at a group, and it holds nothing else. A group
-    that leaves the file keeps its rules and its row. Nothing renders for it,
-    because nothing says where to write.
+    Ansible owns the name and the membership. Each group has its own RPZ zone,
+    which dnsrules serves and unbound fetches. A group that leaves the file
+    keeps its rules and its row, and nothing fetches them.
     """
 
     name = models.CharField(max_length=NAME_MAX_LENGTH, unique=True)
+    # unbound accepts a transfer only when the serial rises, so it has to
+    # outlive a restart of either side.
+    serial = models.BigIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = models.Manager()
@@ -69,7 +71,7 @@ class Rule(models.Model):
     source = models.CharField(
         max_length=16, choices=Source.choices, default=Source.MANUAL
     )
-    # Null means permanent. Expiry belongs here because the zone file format has
+    # Null means permanent. Expiry belongs here because the zone format has
     # nowhere to record it.
     expires_at = models.DateTimeField(null=True, blank=True)
     note = models.CharField(max_length=200, blank=True)
@@ -82,8 +84,8 @@ class Rule(models.Model):
         ordering = ["group__name", "domain"]
         indexes = [models.Index(fields=["expires_at"])]
         constraints = [
-            # Each group renders its own zone file, so one domain holds one
-            # rule per group and no more.
+            # Each group has its own zone, so one domain holds one rule per
+            # group and no more.
             models.UniqueConstraint(
                 fields=["group", "domain"], name="one_rule_per_domain_per_group"
             )

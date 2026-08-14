@@ -121,13 +121,9 @@ def env_path(name: str, default: str) -> Path:
     return Path(BASE_DIR, env(name, default))
 
 
-# Ansible renders hosts.yml at deploy time. It carries the groups, their zone
-# names, and their zone file paths, so no setting names a zone file.
+# Ansible renders hosts.yml at deploy time. It carries the groups and their
+# unbound zone names.
 HOSTS_PATH = env_path("HOSTS_PATH", "/etc/dnsrules/hosts.yml")
-
-# The zone files are group dnsrules:unbound. unbound reads them through the
-# group, so they need no world bit.
-UNBOUND_ZONE_MODE = int(env("ZONE_MODE", "640"), 8)
 
 # A backstop under the 30 day retention, not a schedule. 30 days of raw rows
 # is near 7.5 million, which measures around 2 GiB with its indexes. The cap
@@ -139,11 +135,11 @@ LOG_MAX_BYTES = int(env("LOG_MAX_BYTES", str(4 * 1024**3)))
 DNSTAP_HOST = env("DNSTAP_HOST", "127.0.0.1")
 DNSTAP_PORT = int(env("DNSTAP_PORT", "6000"))
 
-# Empty means render and write the zone file, but skip the reload. No unbound
-# runs on a development machine. Every other failure here must stay loud: a
-# reload that fails quietly leaves unbound serving the previous rules while the
-# website reports success.
-UNBOUND_CONTROL_SOCKET = env("CONTROL_SOCKET", "/run/unbound/control.sock")
+# unbound's remote control, with `control-use-cert: no` so there is no
+# certificate to manage. Loopback only: plain text control hands the resolver
+# to anyone who reaches the port. `just unbound` publishes 8953 for development.
+UNBOUND_CONTROL_HOST = env("CONTROL_HOST", "127.0.0.1")
+UNBOUND_CONTROL_PORT = int(env("CONTROL_PORT", "8953"))
 
 _VALIDATION = "django.contrib.auth.password_validation"
 

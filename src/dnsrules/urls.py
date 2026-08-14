@@ -10,6 +10,9 @@ urlpatterns = [
     path("", core_views.dashboard, name="dashboard"),
     path("rules/", rules_views.index, name="rules"),
     path("rules/<int:pk>/", rules_views.rule, name="rule"),
+    # unbound fetches this. It carries no session, so it stays out of the
+    # authenticated tree above.
+    path("rpz/<str:name>.zone", rules_views.rpz, name="rpz"),
     path("queries/", queries_views.index, name="queries"),
     path("queries/rule/", queries_views.rule, name="queries.rule"),
     path("login/", auth_views.LoginView.as_view(), name="login"),

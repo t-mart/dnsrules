@@ -1,6 +1,7 @@
 import pytest
 from conftest import rules_in
 
+from dnsrules.rules import services
 from dnsrules.rules.models import Group, Rule
 from dnsrules.unbound.zone import Action
 
@@ -45,14 +46,14 @@ def test_a_visit_gives_every_group_a_row(client, admin, zone_settings):
     assert [group.name for group in Group.objects.all()] == ["adults", "kids"]
 
 
-def test_adding_a_rule_writes_the_zone_file(client, admin, zone_settings, zone_files):
+def test_adding_a_rule_reaches_the_zone(client, admin, zone_settings):
     client.get("/rules/")
     kids = Group.objects.get(name="kids")
 
     response = add(client, kids, "ads.example.com")
 
     assert response.status_code == 200
-    assert rules_in(zone_files["kids"].read_text()) == ["ads.example.com CNAME ."]
+    assert rules_in(services.zone_text(kids)) == ["ads.example.com CNAME ."]
 
 
 def test_a_duration_sets_the_expiry(client, admin, zone_settings):
@@ -62,9 +63,7 @@ def test_a_duration_sets_the_expiry(client, admin, zone_settings):
     assert Rule.objects.get().expires_at is not None
 
 
-def test_a_bad_domain_answers_422_and_writes_nothing(
-    client, admin, zone_settings, zone_files
-):
+def test_a_bad_domain_answers_422_and_changes_nothing(client, admin, zone_settings):
     """htmx 4 swaps a 4xx, so the form redisplays with its errors."""
     client.get("/rules/")
     kids = Group.objects.get(name="kids")
@@ -73,7 +72,7 @@ def test_a_bad_domain_answers_422_and_writes_nothing(
 
     assert response.status_code == 422
     assert "is not a domain name" in response.content.decode()
-    assert rules_in(zone_files["kids"].read_text()) == []
+    assert rules_in(services.zone_text(kids)) == []
 
 
 def test_a_repeated_domain_in_one_group_answers_422(client, admin, zone_settings):
@@ -84,9 +83,7 @@ def test_a_repeated_domain_in_one_group_answers_422(client, admin, zone_settings
     assert Rule.objects.count() == 1
 
 
-def test_removing_a_rule_rewrites_the_zone_file(
-    client, admin, zone_settings, zone_files
-):
+def test_removing_a_rule_leaves_the_zone(client, admin, zone_settings):
     client.get("/rules/")
     kids = Group.objects.get(name="kids")
     add(client, kids, "ads.example.com")
@@ -95,10 +92,10 @@ def test_removing_a_rule_rewrites_the_zone_file(
 
     assert response.status_code == 200
     assert Rule.objects.count() == 0
-    assert rules_in(zone_files["kids"].read_text()) == []
+    assert rules_in(services.zone_text(kids)) == []
 
 
-def test_editing_a_rule_changes_the_action(client, admin, zone_settings, zone_files):
+def test_editing_a_rule_changes_the_action(client, admin, zone_settings):
     client.get("/rules/")
     kids = Group.objects.get(name="kids")
     add(client, kids, "ads.example.com")
@@ -117,9 +114,7 @@ def test_editing_a_rule_changes_the_action(client, admin, zone_settings, zone_fi
         **HTMX,
     )
 
-    assert rules_in(zone_files["kids"].read_text()) == [
-        "ads.example.com CNAME rpz-passthru."
-    ]
+    assert rules_in(services.zone_text(kids)) == ["ads.example.com CNAME rpz-passthru."]
     assert Rule.objects.get().note == "school project"
 
 
@@ -169,20 +164,18 @@ def test_a_missing_hosts_file_reports_itself(client, admin, zone_settings, tmp_p
 def test_a_failed_reload_keeps_the_rule_and_says_so(
     client, admin, zone_settings, monkeypatch
 ):
-    from dnsrules.rules import services
     from dnsrules.unbound.control import ControlError
 
     client.get("/rules/")
     kids = Group.objects.get(name="kids")
 
-    def boom(path, name):
+    def boom(host, port, zone, **kwargs):
         raise ControlError("connection refused")
 
-    monkeypatch.setattr(services.control, "auth_zone_reload", boom)
-    zone_settings.UNBOUND_CONTROL_SOCKET = "/run/unbound/control.sock"
+    monkeypatch.setattr(services.control, "auth_zone_transfer", boom)
 
     response = add(client, kids, "ads.example.com")
 
     assert response.status_code == 200
     assert Rule.objects.count() == 1
-    assert "unbound was not updated" in response.content.decode()
+    assert "unbound did not fetch it" in response.content.decode()

@@ -13,7 +13,6 @@ def test_load_reads_the_groups(hosts_path):
     entries = load(hosts_path)
     assert set(entries.groups) == {"kids", "adults"}
     assert entries.groups["kids"].zone == "rules_kids"
-    assert entries.groups["kids"].zonefile.name == "kids.zone"
 
 
 def test_load_maps_each_address_to_a_host_name(hosts_path):
@@ -23,7 +22,7 @@ def test_load_maps_each_address_to_a_host_name(hosts_path):
 
 
 def test_a_missing_file_is_an_error_not_an_empty_result(tmp_path):
-    """An empty result would render every zone file with no rules in it."""
+    """An empty result would render every zone with no rules in it."""
     with pytest.raises(InvalidHosts, match="does not exist"):
         load(tmp_path / "missing.yml")
 
@@ -38,15 +37,11 @@ def test_bad_yaml_reports_the_path(tmp_path):
 @pytest.mark.parametrize(
     ("groups", "message"),
     [
-        ([{"zone": "z", "zonefile": "/f"}], "no name"),
-        ([{"name": "kids", "zonefile": "/f"}], "no zone"),
-        ([{"name": "kids", "zone": "z"}], "no zonefile"),
+        ([{"zone": "z"}], "no name"),
+        ([{"name": "kids"}], "no zone"),
         (["kids"], "not an object"),
         (
-            [
-                {"name": "kids", "zone": "z", "zonefile": "/a"},
-                {"name": "kids", "zone": "y", "zonefile": "/b"},
-            ],
+            [{"name": "kids", "zone": "z"}, {"name": "kids", "zone": "y"}],
             "twice",
         ),
     ],
@@ -58,10 +53,10 @@ def test_a_group_needs_every_field(tmp_path, groups, message):
 
 
 def test_a_zone_name_with_whitespace_is_refused(tmp_path):
-    """The zone name becomes an argument to auth_zone_reload."""
+    """The zone name becomes an argument to auth_zone_transfer."""
     path = write(
         tmp_path / "hosts.yml",
-        {"groups": [{"name": "kids", "zone": "a b", "zonefile": "/f"}]},
+        {"groups": [{"name": "kids", "zone": "a b"}]},
     )
     with pytest.raises(InvalidHosts, match="whitespace"):
         load(path)

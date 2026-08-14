@@ -4,7 +4,7 @@ from dnsrules.rules.services import prune
 
 
 class Command(BaseCommand):
-    help = "Delete expired rules, then rewrite the zone file and reload unbound."
+    help = "Delete expired rules, then tell unbound to fetch the rules again."
 
     def handle(self, *args, **options) -> None:
         count = prune()

@@ -1,26 +1,24 @@
-"""Reconcile the rules table into the zone files, one file for each group.
+"""Serve the rules to unbound.
 
-The order is fixed: read `hosts.yml`, take the lock, read the rules, render,
-write, reload. Every step after a read depends on that read having worked.
+dnsrules renders each group's active rules as RPZ zone text and serves it over
+HTTP. unbound fetches that URL. A rule change raises the serial, then tells
+unbound to fetch the zone again.
+
+Nothing here holds a lock. There is no file to interleave, and a serial rises
+by one statement, so two workers that save at once both converge.
 """
 
 import logging
-from collections import defaultdict
-from pathlib import Path
 
 from django.conf import settings
-from django.db import connection, models, transaction
+from django.db import models
+from django.db.models import F
 
 from dnsrules import hosts
 from dnsrules.rules.models import Group, Rule
 from dnsrules.unbound import control, zone
 
 logger = logging.getLogger(__name__)
-
-# One lock guards render, write, and reload. Two workers rendering at once
-# interleave their writes. A transaction advisory lock releases on commit or
-# rollback, so it cannot leak the way pg_advisory_lock can.
-LOCK_KEY = 0x646E7372  # "dnsr"
 
 
 def read_hosts() -> hosts.Hosts:
@@ -46,67 +44,44 @@ def stale_groups(entries: hosts.Hosts) -> models.QuerySet:
     return Group.objects.exclude(name__in=list(entries.groups))
 
 
-def reconcile() -> dict[str, str]:
-    """Render each group's active rules to its zone file, then reload unbound.
+def zone_text(group: Group) -> str:
+    """One group's whole RPZ zone, exactly as unbound fetches it.
 
-    Returns the zone text for each group that was written.
+    Rendered on each request rather than stored. The rules are the record, and
+    a cached copy is one more thing that drifts from them.
+    """
+    records = [
+        zone.Record(rule.domain, zone.Action(rule.action))
+        for rule in Rule.objects.active().filter(group=group)
+    ]
+    # ty reads a model field as its descriptor, never as the value it holds.
+    return zone.render(records, group.serial)  # ty: ignore[invalid-argument-type]
 
-    Raises rather than writing when a read fails. A render from an unreachable
-    database writes a zone with no rules in it and silently drops every block.
-    Nothing here catches that: the reads come first, and an exception leaves
-    every file untouched.
+
+def reconcile() -> list[str]:
+    """Raise every serial, then tell unbound to fetch each zone again.
+
+    Returns the zone names it asked for. A group that left `hosts.yml` is not
+    among them, because no RPZ block points at it.
 
     Call this after the transaction that changed the rules has committed. A
-    failed reload then reports an error without losing the change, and the next
-    reconcile converges the files on the table.
+    failed transfer then reports an error without losing the change, and
+    unbound refetches on its own within the SOA refresh interval.
     """
     entries = read_hosts()
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [LOCK_KEY])
-        sync_groups(entries)
-        records = defaultdict(list)
-        for rule in Rule.objects.active().select_related("group"):
-            records[rule.group.name].append(
-                zone.Record(rule.domain, zone.Action(rule.action))
-            )
-        for name in set(records) - set(entries.groups):
-            logger.warning(
-                "The group %s is not in hosts.yml. Its %d rules are stale "
-                "and reach no zone file.",
-                name,
-                len(records[name]),
-            )
-        written = {}
-        for name, group in entries.groups.items():
-            text = zone.render(records[name], zone.read_header(group.zonefile))
-            zone.write(group.zonefile, text, mode=settings.UNBOUND_ZONE_MODE)
-            reload_zone(group.zone)
-            written[name] = text
-    return written
-
-
-def reload_zone(name: str) -> None:
-    """Make unbound reread one zone file.
-
-    An empty control socket setting means no unbound runs here, which is the
-    development case. Every other fault stays an error, because a reload that
-    fails quietly leaves unbound serving the previous rules while the website
-    reports success.
-    """
-    socket_path = settings.UNBOUND_CONTROL_SOCKET
-    if not socket_path:
-        logger.warning(
-            "DNSRULES_CONTROL_SOCKET is empty. Wrote the zone file for %s and "
-            "skipped the reload.",
-            name,
+    sync_groups(entries)
+    Group.objects.update(serial=F("serial") + 1)
+    asked = []
+    for group in entries.groups.values():
+        control.auth_zone_transfer(
+            settings.UNBOUND_CONTROL_HOST, settings.UNBOUND_CONTROL_PORT, group.zone
         )
-        return
-    control.auth_zone_reload(Path(socket_path), name)
+        asked.append(group.zone)
+    return asked
 
 
 def prune() -> int:
-    """Delete expired rules and rewrite the zone files. Returns the count."""
+    """Delete expired rules and tell unbound. Returns the count."""
     count, _ = Rule.objects.expired().delete()
     if count:
         reconcile()

@@ -4,10 +4,10 @@ Ansible owns host names, addresses, group names, and membership. It writes
 `/etc/dnsrules/hosts.yml` at deploy time. dnsrules reads that file and
 never writes it.
 
-The file supplies four things: where to write each group's zone file, a name
-for each address, which group applies to which host, and which networks carry
-managed hosts. Subnets belong there, not in this code: `mace` serves the DHCP
-pool and knows its range.
+The file supplies four things: each group's unbound zone name, a name for each
+address, which group applies to which host, and which networks carry managed
+hosts. Subnets belong there, not in this code: `mace` serves the DHCP pool and
+knows its range.
 
 YAML, because the source is `vars/hosts.yml` and the Ansible repository is YAML
 throughout. One format, and the rendered file stays readable by hand.
@@ -29,8 +29,7 @@ class InvalidHosts(ValueError):
 @dataclass(frozen=True, slots=True)
 class Group:
     name: str
-    zone: str  # the unbound zone name, for auth_zone_reload
-    zonefile: Path  # the file dnsrules renders
+    zone: str  # the unbound RPZ zone name, for auth_zone_transfer
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,15 +84,11 @@ def _strings(entry: dict, key: str, path: Path) -> tuple[str, ...]:
 def _group(raw: object, path: Path) -> Group:
     entry = _object(raw, path)
     zone = _field(entry, "zone", path)
-    # The zone name becomes an argument to auth_zone_reload. A space would
+    # The zone name becomes an argument to auth_zone_transfer. A space would
     # split it into two arguments.
     if zone.split() != [zone]:
         raise InvalidHosts(f"{path}: the zone name {zone!r} holds whitespace.")
-    return Group(
-        name=_field(entry, "name", path),
-        zone=zone,
-        zonefile=Path(_field(entry, "zonefile", path)),
-    )
+    return Group(name=_field(entry, "name", path), zone=zone)
 
 
 def _network(raw: object, path: Path) -> Network:

@@ -16,12 +16,18 @@ See [the TODO](TODO.md) for the design of record and the outstanding work.
 
 ```
 cp .env.example .env
+just hosts
 just manage migrate
 just manage createsuperuser
 just dev
+just unbound
 ```
 
 Then open `http://127.0.0.1:8000/rules/` and sign in.
+
+`just unbound` runs a real resolver that fetches its rules from `just dev`. It
+reaches the host across the docker bridge, so the server binds `0.0.0.0` and
+`DNSRULES_ALLOWED_HOSTS` names the gateway. Both are in `.env.example`.
 
 Every command is a Django management command. `manage.py` is a development shim.
 Deployments call the `dnsrules` console script, which is the same entry point.
@@ -66,7 +72,7 @@ unbound needs this, and nothing else:
 ```
 rpz:
     name: "runtime_rules"
-    url: "http://127.0.0.1:8000/rpz/rules.zone"
+    url: "http://127.0.0.1:8000/rpz/home.zone"
     zonefile: "/etc/unbound/zones/rpz-runtime-rules.zone"
     tags: "dns_privacy"
 
@@ -85,8 +91,8 @@ Bind it to loopback, or to a private container network. Never `0.0.0.0`.
 
 ### Rules
 
-dnsrules renders the whole zone, SOA included, and serves it at that URL. One
-rule is one line:
+Each group has its own zone, served at `/rpz/<group>.zone`. dnsrules renders the
+whole thing, SOA included. One rule is one line:
 
 | Action             | Line                          | Answer             |
 | ------------------ | ----------------------------- | ------------------ |

@@ -66,17 +66,32 @@ def _render(request: Request, context: dict, status: int = 200) -> HttpResponse:
 
 
 def _reconcile() -> str | None:
-    """Push the change to unbound. Returns a message when that fails.
+    """Tell unbound to fetch the zone again. Returns a message when that fails.
 
     The row is saved already, so a failure here is a warning on the page rather
-    than a 500. The next reconcile converges the files on the table.
+    than a 500. unbound refetches on the SOA refresh regardless, so the rule
+    still lands.
     """
     try:
         services.reconcile()
     except (ControlError, InvalidHosts, OSError) as problem:
-        logger.exception("The reconcile after a rule change failed.")
-        return f"The rule is saved, but unbound was not updated: {problem}"
+        logger.exception("The transfer after a rule change failed.")
+        return (
+            f"The rule is saved, but unbound did not fetch it: {problem}. "
+            f"It applies within the hour."
+        )
     return None
+
+
+@require_http_methods(["GET"])
+def rpz(request: HttpRequest, name: str) -> HttpResponse:
+    """One group's RPZ zone, as unbound fetches it.
+
+    No authentication, because unbound cannot sign in. The response names every
+    domain the house blocks, so keep the site off the open internet.
+    """
+    group = get_object_or_404(Group, name=name)
+    return HttpResponse(services.zone_text(group), content_type="text/plain")
 
 
 @login_required

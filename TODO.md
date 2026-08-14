@@ -51,20 +51,27 @@ upgrade, and add a check for each new question.
 
 ## 1. Serve the rules zone
 
-- [ ] An HTTP endpoint that renders the active rules as RPZ zone text. No
-      authentication, because unbound cannot sign in. Bind it to loopback.
-- [ ] Own the SOA. Hold the serial in the database and raise it on each change.
-- [ ] `unbound/control.py`: connect over TCP with no TLS, and send
+Done, and checked end to end against `just unbound`: a rule in Postgres reached
+the resolver, and an allow rule beat the feed.
+
+- [x] `/rpz/<group>.zone` renders the active rules as RPZ zone text. No
+      authentication, because unbound cannot sign in.
+- [x] Own the SOA. `Group.serial` holds it, and a change raises it.
+- [x] `unbound/control.py`: connect over TCP with no TLS, and send
       `auth_zone_transfer`.
-- [ ] Trigger a transfer after a rule change. Report a failure on the rules
+- [x] Trigger a transfer after a rule change. Report a failure on the rules
       page, and say that the rule is saved and lands at the next refresh.
-- [ ] Keep the domain validator and the fixed right-hand-side table. Nothing
-      builds a line from raw input.
-- [ ] Delete the zone file writer, `DNSRULES_ZONE_MODE`, and their tests.
-- [ ] Add `use-application-dns.net` as a block-with-no-data rule. It is the
-      Firefox DoH canary, and it moves here out of the `firefox_doh_disabled`
-      view. Seed it as data, never in code. This applies it to every client,
-      where today it reaches only the hosts that Ansible flags.
+- [x] Keep the domain validator and the fixed right-hand-side table.
+- [x] Delete the zone file writer, `DNSRULES_ZONE_MODE`, and their tests.
+- [ ] Add `use-application-dns.net` as a block-with-no-data rule, by hand, once
+      mace serves a group. It is the Firefox DoH canary, and it moves here out
+      of the `firefox_doh_disabled` view. This applies it to every client, where
+      today it reaches only the hosts that Ansible flags.
+
+One rule set for the house is the shape the design of record describes, but a
+rule still belongs to a group and each group gets its own zone and its own URL.
+That costs nothing today and it removes the surprise of a group's rules reaching
+clients outside it. Phase 9 adds the tags that make a group mean something.
 
 ## 2. One process, jobs in Postgres
 
@@ -131,7 +138,7 @@ starts until one rule set for the house is not enough.
 | Item | Blocks |
 | --- | --- |
 | Enable remote control on `127.0.0.1` with `control-use-cert: no` | phase 1 |
-| Point the `runtime_rules` RPZ zone at the dnsrules URL. Keep its `zonefile` | phase 1 |
+| Point the `runtime_rules` RPZ zone at `/rpz/<group>.zone`. Keep its `zonefile` | phase 1 |
 | Remove `dont_block` and the `privacy_blocklist_overrides` zone | phase 1 |
 | Remove the `firefox_doh_disabled` view | phase 1 |
 | Uncomment the `dnstap` block. It is off in the template today | the query log |
