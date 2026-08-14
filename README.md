@@ -7,9 +7,8 @@ sides of Pi-hole and AdGuard Home.
 - A dashboard counts the traffic over a window from 15 minutes to a week.
 - A query log lists every question a client asked, with the answer and the reply
   time. Filter by client, name, record type, status, and time.
-- A rules page lists block rules or allow rules (for overriding an RPZ list).
-  Add, edit, and delete them here, and read the result of the last transfer to
-  Unbound.
+- A rules page lists block rules (or allow) rules. Add, edit, and delete them
+  here, and Unbound will update with them.
 
 ## Rules
 
