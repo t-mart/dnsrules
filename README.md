@@ -24,9 +24,9 @@ In most cases, you will write NXDOMAIN rules to block a name. This indicates to
 applications that the name does not exist.
 
 A NODATA rule is useful when you want an application to see that a name exists,
-but you do not want there to be any records served on it. (I actually don't even
-know what I'd want that, but whatever.) Note: A NODATA rule does not reach the
-log. TODO: should we delete the NODATA option?
+but not the records on it. (I actually don't even know why I'd want that, but
+whatever.) Note: A NODATA rule does not reach the log. TODO: should we delete
+the NODATA option?
 
 Allow rules are helpful to override later RPZ zones that block it. For example,
 you might configure a client to use a blocklist, but you need to reach a site
