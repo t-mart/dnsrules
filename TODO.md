@@ -207,11 +207,3 @@ so at the next fetch.
 - [ ] Add `use-application-dns.net` as a block-with-no-data rule. It is the
       Firefox DoH canary. As a rule it reaches every tagged client, where a view
       reaches only the flagged hosts.
-
-## Open questions
-
-- [ ] Which port the site answers on, and whether a tailnet reaches it. LAN
-      first is decided.
-- [ ] Public or private GitHub repository. A private one needs a deploy key on
-      the host that installs it.
-- [ ] Whether the Django admin stays. It is a second way into the same power.
