@@ -74,6 +74,7 @@ class Command(BaseCommand):
         Application(
             {
                 "bind": options["bind"],
+                "control_socket_disable": True,
                 "workers": WORKERS,
                 "threads": options["threads"],
                 "post_worker_init": _background,

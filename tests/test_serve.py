@@ -22,6 +22,7 @@ def test_serve_migrates_then_runs_one_worker_with_the_hook(monkeypatch):
 
     assert order == ["migrate", "close"]
     assert captured["workers"] == 1
+    assert captured["control_socket_disable"] is True
     assert captured["post_worker_init"] is serve._background
 
 
