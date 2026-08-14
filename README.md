@@ -163,7 +163,7 @@ server:
 # One clause for each name in `RPZ_ZONES`.
 rpz:
     name: "dnsrules"
-    url: "http://127.0.0.1:8000/rpz/dnsrules.zone"
+    url: "http://127.0.0.1:5380/rpz/dnsrules.zone"
     zonefile: "/var/lib/unbound/rpz-dnsrules.zone"
     tags: "filtered"
     rpz-signal-nxdomain-ra: yes
@@ -216,12 +216,12 @@ server:
 rpz:
     name: "strictprivacy" # name must match the one in `DNSRULES_RPZ_ZONES`
     tags: "homedevice"
-    url: "http://127.0.0.1:8000/rpz/strictprivacy.zone"  # is also the name of RPZ zone file
+    url: "http://127.0.0.1:5380/rpz/strictprivacy.zone"  # is also the name of RPZ zone file
 
 rpz:
     name: "permissive" # name must match the one in `DNSRULES_RPZ_ZONES`
     tags: "workdevice"
-    url: "http://127.0.0.1:8000/rpz/permissive.zone"
+    url: "http://127.0.0.1:5380/rpz/permissive.zone"
 ```
 
 dnsrules serves each zone at its own URL, transfers each one, and the rules page
@@ -270,7 +270,7 @@ just manage createsuperuser
 just dev
 ```
 
-Then open `http://127.0.0.1:8000/` and sign in.
+Then open `http://127.0.0.1:5380/` and sign in.
 
 Run `just dev`, `just worker`, `just ingest`, and `just unbound` at once, in
 four terminals. `serve` runs the first three in one process, but development

@@ -32,7 +32,7 @@ services:
       dnsrules:
         ipv4_address: 172.28.0.2
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:5380:5380"
     restart: unless-stopped
     # The Dockerfile carries the check. Give it longer to come up here, because
     # the first start runs the migrations against a database on another host.

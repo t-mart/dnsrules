@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+
 from django.core.management import call_command
 
 from dnsrules.core.management.commands import serve
@@ -21,9 +25,24 @@ def test_serve_migrates_then_runs_one_worker_with_the_hook(monkeypatch):
     call_command("serve")
 
     assert order == ["migrate", "close"]
+    assert captured["bind"] == serve.settings.BIND
     assert captured["workers"] == 1
     assert captured["control_socket_disable"] is True
     assert captured["post_worker_init"] is serve._background
+
+
+def test_serve_defaults_to_port_5380():
+    environment = os.environ.copy()
+    environment.pop("DNSRULES_BIND", None)
+    result = subprocess.run(
+        [sys.executable, "-c", "from dnsrules.settings import BIND; print(BIND)"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+    assert result.stdout.strip() == "0.0.0.0:5380"
 
 
 def test_secret_prints_a_line_for_the_environment_file(capsys):

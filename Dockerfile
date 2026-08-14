@@ -20,9 +20,9 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
-# 8000 is the website, and the RPZ zone that unbound fetches. 6000 takes the
+# 5380 is the website, and the RPZ zone that unbound fetches. 6000 takes the
 # dnstap stream, which unbound connects out to.
-EXPOSE 8000 6000
+EXPOSE 5380 6000
 
 # dnsrules writes no file, and both ports are above 1024, so nothing here needs
 # root. The tree stays owned by root and is read only to this user.
@@ -33,6 +33,6 @@ USER dnsrules
 # session, and it is the one page a healthcheck can reach. There is no curl in
 # this image, and there is a Python.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/login/', timeout=4)"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5380/login/', timeout=4)"]
 
 CMD ["dnsrules", "serve"]
