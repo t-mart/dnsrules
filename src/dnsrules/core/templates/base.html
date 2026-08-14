@@ -18,14 +18,22 @@
     <header>
       <a href="{% url 'dashboard' %}">dnsrules</a>
       {% if user.is_authenticated %}
-        <nav>
-          <a href="{% url 'queries' %}">Queries</a>
-          <a href="{% url 'rules' %}">Rules</a>
-          <form method="post" action="{% url 'logout' %}">
-            {% csrf_token %}
-            <button class="link" type="submit">Sign out</button>
-          </form>
-        </nav>
+        {% comment %}
+          aria-current says which page this is, to a reader and to the
+          stylesheet at once. Only a full page load draws this, so the three
+          names below are the only ones it ever sees.
+        {% endcomment %}
+        {% with here=request.resolver_match.url_name %}
+          <nav>
+            <a href="{% url 'dashboard' %}"{% if here == "dashboard" %} aria-current="page"{% endif %}>Dashboard</a>
+            <a href="{% url 'queries' %}"{% if here == "queries" %} aria-current="page"{% endif %}>Queries</a>
+            <a href="{% url 'rules' %}"{% if here == "rules" %} aria-current="page"{% endif %}>Rules</a>
+            <form method="post" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button class="link" type="submit">Sign out</button>
+            </form>
+          </nav>
+        {% endwith %}
       {% endif %}
     </header>
     <main>

@@ -61,8 +61,16 @@ header {
   padding-bottom: 0.5rem;
 }
 
-header a:first-child {
+/* The brand. Without the child combinator this also takes the first link in
+   the nav, which then wears the brand's size and weight. */
+header > a:first-child {
   font-size: 1.125rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* The page you are on is not a link worth following. */
+nav a[aria-current="page"] {
   font-weight: 600;
   text-decoration: none;
 }

@@ -5,15 +5,8 @@
 
 {% block scripts %}
   {% comment %}
-    The only thing this project loads from the network, and only on this page.
-    htmx is vendored because the rules panel has to work when DNS is broken. A
-    chart that fails to draw costs a chart, so a CDN is the right trade here.
-
     Both carry defer, so they run in this order after htmx and before the
     document is ready.
-
-    The UMD build, not chart.min.js. That one is an ES module, and a plain
-    script tag stops on its first import statement.
   {% endcomment %}
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"
           integrity="sha512-Y51n9mtKTVBh3Jbx5pZSJNDDMyY+yGe77DGtBPzRlgsf/YLCh13kSZ3JmfHGzYFCmOndraf0sQgfM654b7dJ3w=="

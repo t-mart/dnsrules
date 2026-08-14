@@ -1,7 +1,9 @@
 import os
+import re
 import subprocess
 import sys
 
+import pytest
 from django.core.management import call_command
 
 
@@ -23,6 +25,23 @@ def test_dashboard_requires_a_login(client):
     response = client.get("/")
     assert response.status_code == 302
     assert response.headers["Location"].startswith("/login/")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "path,label",
+    [("/", "Dashboard"), ("/queries/", "Queries"), ("/rules/", "Rules")],
+)
+def test_the_nav_marks_the_page_you_are_on_and_no_other(
+    client, django_user_model, path, label
+):
+    user = django_user_model.objects.create_user(username="tim", password="secret")
+    client.force_login(user)
+
+    body = client.get(path).content.decode()
+
+    marked = re.findall(r'<a[^>]*aria-current="page"[^>]*>([^<]+)</a>', body)
+    assert marked == [label]
 
 
 def test_vendored_htmx_is_served(client):
