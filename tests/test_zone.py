@@ -65,7 +65,7 @@ def test_render_normalizes_and_sorts():
 
 
 def test_render_refuses_a_fused_line():
-    """The fault seen on mace: a lost newline joins two rules into one.
+    """The fault this guards: a lost newline joins two rules into one.
 
     `rpz-passthru.example.com` is a legal CNAME target, so unbound loads the
     line, takes the transfer without complaint, and inverts the intent. The

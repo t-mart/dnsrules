@@ -5,7 +5,7 @@ import pytest
 from dnsrules.rules import services
 from dnsrules.rules.models import Group
 
-# Real bytes from mace. Never committed: the capture holds every DNS query the
+# Real bytes from a resolver. Never committed: the capture holds every DNS query
 # house made during its window, which is a browsing history. .gitignore lists
 # it, and the tests that need it skip when it is absent.
 CAPTURE = Path(__file__).parent / "fixtures" / "dnstap.fstrm"

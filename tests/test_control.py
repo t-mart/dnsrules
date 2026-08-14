@@ -12,11 +12,11 @@ from dnsrules.unbound.control import (
     parse_auth_zones,
 )
 
-# Real output from unbound 1.26.0. The name carries a trailing dot, and a zone
-# it never fetched says "no serial" rather than zero.
+# The shape of real output from unbound 1.26.0. The name carries a trailing
+# dot, and a zone it never fetched says "no serial" rather than zero.
 LIST_AUTH_ZONES = (
     "test_feed.\tserial 1\t since 1786684178 2026-08-14T05:09:38\n"
-    "runtime_rules.\tno serial\n"
+    "dnsrules.\tno serial\n"
 )
 
 
@@ -77,29 +77,29 @@ def closed_port():
 
 def test_auth_zone_transfer_sends_the_protocol_line(unbound):
     server = unbound()
-    assert auth_zone_transfer(server.host, server.port, "runtime_rules") == "ok\n"
-    assert server.received == f"{VERSION} auth_zone_transfer runtime_rules\n"
+    assert auth_zone_transfer(server.host, server.port, "dnsrules") == "ok\n"
+    assert server.received == f"{VERSION} auth_zone_transfer dnsrules\n"
 
 
 def test_command_raises_on_an_error_reply(unbound):
-    server = unbound("error no auth-zone runtime_rules\n")
+    server = unbound("error no auth-zone dnsrules\n")
     with pytest.raises(ControlError, match="no auth-zone"):
-        auth_zone_transfer(server.host, server.port, "runtime_rules")
+        auth_zone_transfer(server.host, server.port, "dnsrules")
 
 
 def test_command_raises_when_nothing_listens(closed_port):
     with pytest.raises(ControlError, match=str(closed_port)):
-        auth_zone_transfer("127.0.0.1", closed_port, "runtime_rules")
+        auth_zone_transfer("127.0.0.1", closed_port, "dnsrules")
 
 
 def test_command_raises_when_unbound_never_answers(unbound):
     server = unbound(reply=None)
     with pytest.raises(ControlError):
-        auth_zone_transfer(server.host, server.port, "runtime_rules", timeout=0.2)
+        auth_zone_transfer(server.host, server.port, "dnsrules", timeout=0.2)
 
 
 def test_parse_auth_zones_reads_a_serial_and_the_lack_of_one():
-    assert parse_auth_zones(LIST_AUTH_ZONES) == {"test_feed": 1, "runtime_rules": None}
+    assert parse_auth_zones(LIST_AUTH_ZONES) == {"test_feed": 1, "dnsrules": None}
 
 
 def test_parse_auth_zones_of_a_resolver_holding_nothing():
@@ -110,7 +110,7 @@ def test_auth_zones_sends_the_protocol_line(unbound):
     server = unbound(LIST_AUTH_ZONES)
     assert auth_zones(server.host, server.port) == {
         "test_feed": 1,
-        "runtime_rules": None,
+        "dnsrules": None,
     }
     assert server.received == f"{VERSION} list_auth_zones\n"
 

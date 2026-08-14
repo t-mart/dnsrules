@@ -1,24 +1,26 @@
-"""Give a fresh install one group, so a rule has somewhere to go.
+"""Create the rules zone, so a rule has somewhere to go.
 
-The name picks the URL that unbound fetches, at `/rpz/home.zone`. The zone is
-what `unbound.conf` calls it. Both are data, so change them here or in the
-admin rather than in code.
+`RPZ_NAME` picks the URL that unbound fetches, at `/rpz/<name>.zone`. `RPZ_ZONE`
+is the name unbound.conf gives that zone. Both default to `dnsrules`.
+
+The settings seed the row and nothing more. Change the row to rename the zone
+on a database that exists already.
 """
 
+from django.conf import settings
 from django.db import migrations
-
-NAME = "home"
-ZONE = "runtime_rules"
 
 
 def add(apps, schema_editor) -> None:
     Group = apps.get_model("rules", "Group")
-    Group.objects.get_or_create(name=NAME, defaults={"zone": ZONE})
+    Group.objects.get_or_create(
+        name=settings.RPZ_NAME, defaults={"zone": settings.RPZ_ZONE}
+    )
 
 
 def remove(apps, schema_editor) -> None:
     Group = apps.get_model("rules", "Group")
-    Group.objects.filter(name=NAME, rules__isnull=True).delete()
+    Group.objects.filter(name=settings.RPZ_NAME, rules__isnull=True).delete()
 
 
 class Migration(migrations.Migration):

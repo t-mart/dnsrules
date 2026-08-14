@@ -4,37 +4,65 @@ Outstanding work. Each phase leaves the project in a working state.
 
 ## Design of record
 
-- dnsrules renders its rules as an RPZ zone and serves them over HTTP. unbound
-  fetches that URL. dnsrules writes no file, and it never writes unbound
+- dnsrules renders each rules zone as RPZ text and serves it over HTTP. unbound
+  fetches those URLs. dnsrules writes no file, and it never writes unbound
   configuration.
-- A rule change calls `auth_zone_transfer runtime_rules` over the control
-  interface, and unbound refetches at once.
+- A rule change calls `auth_zone_transfer <zone>` over the control interface,
+  and unbound refetches at once.
 - unbound keeps the last fetch on disk and refreshes on the zone SOA. A dnsrules
-  outage never unblocks the house. A lost trigger costs one refresh interval,
+  outage never unblocks the network. A lost trigger costs one refresh interval,
   not correctness.
 - Control runs over TCP to localhost with `control-use-cert: no`. No
-  certificates, no unix socket, and no group membership.
+  certificates and no unix socket.
+- The zone list is deployment configuration, next to `unbound.conf`. The two
+  must agree, so one deploy writes both.
+- The query log records what an answer was. It never records which policy made
+  it that way.
 - One process serves the site and runs the jobs. The job table is in Postgres.
-- unbound keeps the 430k entry blocklist. dnsrules owns every rule a human makes.
+- unbound keeps the large blocklist. dnsrules owns every rule a human makes.
 - dnstap stays. unbound connects out to the ingest listener.
 
 One rule is one line of the zone:
 
-| Action | Line | Answer |
-| --- | --- | --- |
-| Block | `<domain> CNAME .` | NXDOMAIN |
-| Block with no data | `<domain> CNAME *.` | NOERROR, no answer |
-| Allow | `<domain> CNAME rpz-passthru.` | Resolve, and skip every later zone |
+| Action             | Line                           | Answer                             |
+| ------------------ | ------------------------------ | ---------------------------------- |
+| Block              | `<domain> CNAME .`             | NXDOMAIN                           |
+| Block with no data | `<domain> CNAME *.`            | NOERROR, no answer                 |
+| Allow              | `<domain> CNAME rpz-passthru.` | Resolve, and skip every later zone |
 
-The rules zone comes before the blocklist, so an allow beats a block. dnsrules
-owns the whole zone text, including the SOA. The serial must rise on each change.
+A dnsrules zone comes before the blocklist, so an allow beats a block. dnsrules
+owns the whole zone text, including the SOA. The serial must rise on each
+change.
+
+## What dnsrules cannot know
+
+unbound decides which clients a zone reaches, through `tags` and
+`access-control-tag`. Nothing reports that back:
+
+- dnstap carries no view, no tag, and no zone. Measured on 1214 real messages:
+  no `policy`, no `query_zone`, no `extra`, no `identity`. unbound fills none of
+  them, so there is nothing to read.
+- Remote control answers `get_option define-tag` and `get_option
+  access-control`, but `get_option access-control-tag` comes back empty with
+  entries configured, and `get_option view` is an unknown option. No command
+  lists views or maps a client to a tag.
+
+Two consequences, both settled:
+
+- Membership stays in `unbound.conf`. dnsrules needs the zone names and nothing
+  else.
+- An answer cannot be traced to the zone that made it. Phase 1 stops trying.
+
+If a zone on a client is ever wanted, it is a label with the standing of a name,
+never an input to policy.
 
 ## What the resolver does
 
 Measured against unbound 1.26.0 with `just unbound`. Run it again after an
 upgrade, and add a check for each new question.
 
-- Remote control over TCP answers with `control-use-cert: no`, and needs no files.
+- Remote control over TCP answers with `control-use-cert: no`, and needs no
+  files.
 - RPZ is applied before local zones and before the cache. A local zone of type
   `always_transparent` does not unblock a name that RPZ blocks. Allow rules must
   be RPZ.
@@ -45,187 +73,109 @@ upgrade, and add a check for each new question.
   fetch fails. The reply carries no information. `list_auth_zones` reports the
   serial unbound holds, or "no serial" for a zone it never fetched, and the new
   serial lands about 30 ms after the transfer.
-- An RPZ block clears the RA bit only where `rpz-signal-nxdomain-ra: yes` is set.
-  `CNAME *.` answers NOERROR, which no rcode tells apart from an empty answer.
 - unbound holds 430k local zones in 141 MB and answers from them in 0 ms, but a
   bulk load stalls DNS for about 3 seconds. unbound keeps the blocklist for this
   reason, and because it already fetches, refreshes, and persists it.
 - `view-first: yes` sends a view client to the global zones when the view holds
-  no match. mace sets it on every view, so one rule set reaches every client.
+  no match. A deployment that sets it on every view gets one rule set for every
+  client.
 
-## 1. Serve the rules zone
+The flags on an answer, measured with `just probe`:
 
-Done, and checked end to end against `just unbound`: a rule in Postgres reached
-the resolver, and an allow rule beat the feed.
-
-- [x] `/rpz/<group>.zone` renders the active rules as RPZ zone text. No
-      authentication, because unbound cannot sign in.
-- [x] Own the SOA. `Group.serial` holds it, and a change raises it.
-- [x] `unbound/control.py`: connect over TCP with no TLS, and send
-      `auth_zone_transfer`.
-- [x] Trigger a transfer after a rule change. Report a failure on the rules
-      page, and say that the rule is saved and lands at the next refresh.
-- [x] Confirm it. The transfer reply says "ok" either way, so read the serial
-      back with `list_auth_zones` and compare it against the published one.
-- [x] Keep the domain validator and the fixed right-hand-side table.
-- [x] Delete the zone file writer, `DNSRULES_ZONE_MODE`, and their tests.
-- [ ] Add `use-application-dns.net` as a block-with-no-data rule, by hand, once
-      mace serves a group. It is the Firefox DoH canary, and it moves here out
-      of the `firefox_doh_disabled` view. This applies it to every client, where
-      today it reaches only the hosts that Ansible flags.
-
-One rule set for the house is the shape the design of record describes, but a
-rule still belongs to a group and each group gets its own zone and its own URL.
-That costs nothing today and it removes the surprise of a group's rules reaching
-clients outside it. Phase 9 adds the tags that make a group mean something.
-
-## 2. One process, jobs in Postgres
-
-- [x] `Job` model: name, run_at, last_run, last_error. The interval lives in
-      `SCHEDULE`, because it is code, not data.
-- [x] Claim with `FOR UPDATE SKIP LOCKED`, run, then set the next `run_at`. The
-      lock is held for the whole run.
-- [x] A failed job comes back after `RETRY`, not at its next turn.
-- [x] Three jobs: transfer, prune, retention.
-- [x] A rule edit sets `run_at = now()` on the transfer job. Only the worker
-      talks to unbound, and the page reads `last_error`.
-- [x] `serve`: one gunicorn worker, with the jobs and the ingest started from
-      `post_worker_init` so nothing is inherited across the fork.
-- [x] `worker` command, for development next to `runserver`.
-- [x] Delete `src/dnsrules/units/`, the `units` command, and `test_units.py`.
-
-## 3. Scrap the archive
-
-- [x] Drop `queries_hour` and `queries_top`, `rollups.py`, and `partitions.py`.
-- [x] Drop the `rollup` and `partitions` commands, and their tests.
-- [x] One unpartitioned table, with the BRIN index declared on the model.
-- [x] `queries.services.retention` is one DELETE past 30 days.
-- [x] Drop `DNSRULES_LOG_MAX_BYTES`.
-- [x] Delete the migrations and generate one initial per app. The hand written
-      partition SQL went with them.
-
-## 4. Mark a row blocked
-
-Done. Measured with `just probe`, against unbound 1.26.0:
-
-| Case | rcode | AA | RA |
-| --- | --- | --- | --- |
+| Case                                      | rcode    | AA  | RA     |
+| ----------------------------------------- | -------- | --- | ------ |
 | Feed block, `rpz-signal-nxdomain-ra: yes` | NXDOMAIN | yes | **no** |
-| Rule `CNAME .`, same option | NXDOMAIN | yes | **no** |
-| Rule `CNAME *.` | NOERROR | yes | yes |
-| Ordinary answer | NOERROR | no | yes |
-| `.invalid`, a built in local zone | NXDOMAIN | yes | yes |
+| Rule `CNAME .`, same option               | NXDOMAIN | yes | **no** |
+| Rule `CNAME *.`                           | NOERROR  | yes | yes    |
+| Ordinary answer                           | NOERROR  | no  | yes    |
+| `.invalid`, a built in local zone         | NXDOMAIN | yes | yes    |
 
-- [x] A cleared RA bit is the only usable in-band signal. AA is not: unbound
-      sets it for every local zone, including the LAN names and `.invalid`.
-- [x] `CNAME *.` has no in-band signal at all. NODATA reads exactly like a
-      legitimate empty answer, so the rules table is the only way to see one.
-- [x] `Query.blocked_by` holds `rule` or `feed`, stamped at ingest. A rule is
-      matched against the table and is exact. The signal covers the feed.
-- [x] The rule set is cached for a minute, so 250,000 rows a day cost one read.
-- [x] The log says which one stopped a row.
+A cleared RA bit is the only usable in-band signal, and it says that an answer
+was blocked. It cannot name the zone. AA is not a signal: unbound sets it for
+every local zone, including the LAN names and `.invalid`. `CNAME *.` has no
+signal at all, because NODATA reads exactly like a legitimate empty answer.
 
-## 5. Clients in the UI
+## 1. Stop attributing a block to a policy
 
-- [x] `Client` model: address and name. Click a client in the query log to name
-      it, and clear the name to take it back.
-- [x] Groups moved into the database, with the RPZ zone name on the row. A
-      migration adds one group, `home`.
-- [x] Delete `hosts.py`, `names.py`, `DNSRULES_HOSTS_PATH`, the tailscale
-      subprocess, and the `hosts` recipe.
+`blocked_by` holds `rule` or `feed` today. The `feed` half is the RA bit, which
+is correct. The `rule` half matches the query name against the rules table, and
+it is wrong now, before any of phase 2:
 
-The unmanaged marking went with `hosts.yml`. It said that no policy reaches a
-client, which dnsrules read from the networks in that file. unbound decides it,
-through `access-control-tag`, and no control command reports it. Bring it back
-only if the question comes up in use.
+- A wildcard rule never matches. `blocking_domains()` returns `*.example.com`
+  verbatim, and the query name is `foo.example.com`.
+- A client with no tag gets no RPZ, so its query resolves. dnsrules sees the
+  name in the rules table and stamps `rule` anyway.
 
-## 6. Plain CSS
+Many zones would add a third fault, because a name blocked in one zone would be
+stamped for a client in another. The signal is not worth repairing. Keep "was
+this blocked", drop "by what".
 
-- [x] `src/dnsrules/static/dnsrules/app.css`, written by hand. Elements carry
-      the styling, and a class appears only where the markup cannot say what a
-      thing is.
-- [x] Delete `django-tailwind-cli`, `assets/app.css`, `.django_tailwind_cli/`,
-      and the `css`, `css-watch`, and `css-check` recipes.
-- [x] A test that every class a template uses is defined in the stylesheet.
-      Tailwind generated a rule for whatever a template named, so a typo was
-      invisible. Nothing generates one now.
+- [ ] `queries/services.py`: delete `blocking_domains`, `_bucketed`,
+      `cached_blocking_domains`, and `RULES_TTL`. `blocked_by()` becomes
+      `exchange.blocked`.
+- [ ] The ingest then imports nothing from the rules app. Keep it that way.
+- [ ] `queries/models.py`: delete `BlockedBy`. `Query.blocked_by` becomes a
+      `blocked` boolean, and the property of that name goes with it.
+- [ ] Drop the `queries_query_blocked_by` index. Two values give a planner
+      nothing that the BRIN on `at` does not already give it.
+- [ ] `stats.py` and `queries/views.py`: `~Q(blocked_by="")` becomes
+      `Q(blocked=True)`, in four places.
+- [ ] `queries/table.html`: drop the muted `rule` or `feed` label under the
+      blocked marker.
+- [ ] One migration for the field and the index.
 
-## 7. Docker
+The dashboard does not change. Blocked over time, top blocked, and the blocked
+share of each client bar all read the boolean.
 
-- [x] One image, one process. `just dev` still runs without it.
-- [x] `compose.yaml` brings up both halves. `just up` and `just down`.
-- [x] No port reaches beyond loopback, and the two containers talk on a private
-      network.
-- [x] `serve` migrates at startup, so a deploy needs no separate step.
+The cost is that a `CNAME *.` rule becomes invisible in the log. It answers
+NOERROR with RA set, so nothing separates it from an ordinary empty answer. Say
+so in the README.
 
-The addresses in `compose.yaml` are fixed, and they have to be. `dnstap-ip`
-takes no hostname, and a resolver cannot use DNS to find its own control plane.
-`dev/entrypoint.sh` substitutes the one address unbound needs, so the same image
-serves `just unbound` and the compose stack.
+## 2. Many zones
 
-Still to do:
+The schema already carries this. `Group` holds the name, the zone, and the
+serial; `reconcile()` transfers every group and confirms every serial; `rpz()`
+resolves any name; the rules page sections by group; the query log control
+already posts a group. Two zones run in the tests today. What is missing is a
+way to declare the list, and the UI polish.
 
-- [ ] Decide where the image is published, and how the router pulls it.
-- [ ] A healthcheck for each service.
-- [ ] Run as a user other than root.
+- [ ] `DNSRULES_RPZ_ZONES`, a comma separated list, default `dnsrules`. It
+      replaces `RPZ_NAME` and `RPZ_ZONE`.
+- [ ] Collapse `Group.name` and `Group.zone` into one name. Two names for one
+      thing is the drift that `confirm()` had to be written to catch.
+- [ ] `Group.objects.configured()`: the rows the settings name. Use it in
+      `reconcile()`, `rpz()`, `_sections()`, and the query log choices.
+- [ ] A name dropped from the list stops being served and transferred. Its rules
+      stay in the table, because a typo must not delete a rule set.
+- [ ] The data migration seeds the listed names. A name added later is created
+      at startup, not by hand.
+- [ ] `group=*` on the query log control writes the rule to every configured
+      zone, and it is the default. Blocking from a row stays one click.
+- [ ] The rules page hides the zone picker while one zone is configured.
 
-## 8. Dashboard
+No migration is needed for the zone list itself, and the htmx endpoints do not
+change.
 
-Done. `/` counts the rows the log lists.
+`reconcile()` raises every serial on each change, so one edit refetches every
+zone. That is wasteful and harmless at this size. Scope it to the changed zone
+only if a deployment ever runs enough zones to notice.
 
-- [x] Top blocked and top asked for over a window, as CSS bars.
-- [x] Client breakdown, with the stopped part of each client in its bar.
-- [x] Queries over time, as a stacked Chart.js bar chart with axes and
-      tooltips. The empty buckets are drawn, so a quiet hour reads as quiet and
-      not as absent.
-- [x] Each bar links into the log, with the same window.
-- [x] Chart.js from a CDN, pinned to its hash, on this page alone. Take the UMD
-      build: `chart.min.js` is an ES module and a plain script tag stops on its
-      first import. The tables stay CSS, because a percentage needs no library.
-- [x] The whole panel swaps, canvas included. `charts.js` redraws from
-      `htmx.onLoad` and destroys the old chart. htmx processes the document as
-      soon as it runs, before a later deferred script, so the first draw is a
-      direct call.
+## 3. Deployment
 
-The window is bounded, 15 minutes to a week. "Everything" is not offered: one
-load is four aggregates, and they run against the table the ingest writes.
-Measured on 250,000 rows, the day window costs seven statements and 0.24 s.
+- [ ] A healthcheck for each service in `compose.yaml`.
+- [ ] Run the container as a user other than root.
+- [ ] Decide whether an image is published, and where.
 
-## 9. Groups, deferred
+## By hand, once a resolver serves a zone
 
-Per-client rules need unbound views, and a view is configuration, so Ansible
-defines it. Each group then needs its own RPZ zone and its own URL. Nothing here
-starts until one rule set for the house is not enough.
-
-Nothing tells dnsrules which group a client is in, and nothing will:
-
-- dnstap carries no view, no tag, and no group. Measured on 1214 messages from
-  mace: no `policy`, no `query_zone`, no `extra`, no `identity`. unbound fills
-  none of them, so there is nothing to read.
-- Remote control answers `get_option define-tag` and `get_option
-  access-control`, but `get_option access-control-tag` comes back empty with
-  entries configured, and `get_option view` is an unknown option. There is no
-  command that lists views or maps a client to a tag.
-
-So membership stays with unbound, in Ansible, and dnsrules needs the zone name
-and nothing else. If the group control ever wants a default, that is a label on
-the client with the standing of a name, never an input to policy.
-
-## What mace must do
-
-| Item | Blocks |
-| --- | --- |
-| Enable remote control on `127.0.0.1` with `control-use-cert: no` | phase 1 |
-| Point the `runtime_rules` RPZ zone at `/rpz/<group>.zone`. Keep its `zonefile` | phase 1 |
-| Remove `dont_block` and the `privacy_blocklist_overrides` zone | phase 1 |
-| Set `rpz-signal-nxdomain-ra: yes` on `runtime_rules`, as the feed has | phase 4 |
-| Remove the `firefox_doh_disabled` view | phase 1 |
-| Uncomment the `dnstap` block. It is off in the template today | the query log |
-| Open the website port in `vars/nftables.yml` | reaching the site |
+- [ ] Add `use-application-dns.net` as a block-with-no-data rule. It is the
+      Firefox DoH canary. As a rule it reaches every tagged client, where a view
+      reaches only the flagged hosts.
 
 ## Open questions
 
-- [ ] Which port, and whether the tailnet reaches it. LAN first is decided.
+- [ ] Which port the site answers on, and whether a tailnet reaches it. LAN
+      first is decided.
 - [ ] Public or private GitHub repository. A private one needs a deploy key on
-      the router.
+      the host that installs it.
 - [ ] Whether the Django admin stays. It is a second way into the same power.

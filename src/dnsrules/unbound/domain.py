@@ -1,9 +1,4 @@
-"""Validate domain names before they reach a zone file.
-
-The pattern is a copy of the one in `vars/schemas/unbound_blocklist.schema.json`
-in the mace repository. Keep the two identical. mace validates its own blocklist
-with it, and both files feed the same resolver.
-"""
+"""Validate domain names before they reach a zone file."""
 
 import re
 
@@ -27,8 +22,7 @@ def normalize(text: str) -> str:
     """Return the name as a zone file spells it, or raise InvalidDomain.
 
     Lower case, and no trailing dot. unbound reads the left hand side of an RPZ
-    rule relative to the zone origin, and both mace and the verification recipe
-    write it bare.
+    rule relative to the zone origin, so it is written bare.
     """
     candidate = text.strip().lower()
     if not candidate:

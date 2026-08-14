@@ -77,8 +77,8 @@ def test_the_shares_scale_to_the_largest_bar(counted, since):
 
 
 def test_a_named_client_shows_its_name(counted, since):
-    Client.objects.create(address="10.0.0.2", name="clove")
-    assert stats.clients(since)[0].label == "clove"
+    Client.objects.create(address="10.0.0.2", name="laptop")
+    assert stats.clients(since)[0].label == "laptop"
 
 
 def test_the_timeline_has_a_bucket_for_each_quiet_hour(counted, since):

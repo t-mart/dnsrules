@@ -54,7 +54,7 @@ def parse_auth_zones(reply: str) -> dict[str, int | None]:
     unbound writes one zone per line, and it ends each name with a dot:
 
         test_feed.	serial 1	 since 1786684178 2026-08-14T05:09:38
-        runtime_rules.	no serial
+        dnsrules.	no serial
 
     A zone unbound has never fetched says "no serial", which is None here.
     """

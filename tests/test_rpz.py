@@ -62,6 +62,14 @@ def test_an_unknown_group_is_a_404(client, zone_settings):
     assert client.get("/rpz/nobody.zone").status_code == 404
 
 
+def test_a_fresh_database_serves_the_configured_zone(client, db, settings):
+    """The two names in unbound.conf. A migration seeds them from the settings."""
+    zone = Group.objects.get(name=settings.RPZ_NAME)
+
+    assert zone.zone == settings.RPZ_ZONE
+    assert client.get(f"/rpz/{settings.RPZ_NAME}.zone").status_code == 200
+
+
 def test_a_database_fault_never_answers_an_empty_zone(
     client, zone_settings, monkeypatch
 ):

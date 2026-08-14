@@ -85,22 +85,22 @@ def test_an_unnamed_client_shows_its_address(client, admin, logged):
 
 
 def test_a_named_client_shows_its_name(client, admin, logged):
-    Client.objects.create(address="10.0.0.2", name="clove")
+    Client.objects.create(address="10.0.0.2", name="laptop")
     body = client.get("/queries/").content.decode()
-    assert "clove" in body
+    assert "laptop" in body
 
 
 def test_naming_a_client_from_a_row(client, admin, logged):
     response = client.post(
-        "/queries/client/", {"address": "10.0.0.2", "name": "clove"}, **HTMX
+        "/queries/client/", {"address": "10.0.0.2", "name": "laptop"}, **HTMX
     )
     assert response.status_code == 200
-    assert Client.objects.get(address="10.0.0.2").name == "clove"
-    assert "clove" in response.content.decode()
+    assert Client.objects.get(address="10.0.0.2").name == "laptop"
+    assert "laptop" in response.content.decode()
 
 
 def test_an_empty_name_takes_the_name_back(client, admin, logged):
-    Client.objects.create(address="10.0.0.2", name="clove")
+    Client.objects.create(address="10.0.0.2", name="laptop")
     client.post("/queries/client/", {"address": "10.0.0.2", "name": ""}, **HTMX)
     assert Client.objects.count() == 0
 

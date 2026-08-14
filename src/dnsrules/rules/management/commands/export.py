@@ -23,7 +23,8 @@ class Command(BaseCommand):
         parser.add_argument("--format", choices=FORMATS, default=FORMATS[0])
 
     def handle(self, *args, **options) -> None:
-        # The group structure and the feed URLs live in the mace repository and
+        # The group structure and the feed URLs live in the resolver's own
+        # configuration and
         # survive a rebuild. The rules live only here, so they need a copy that
         # git holds.
         rules: list[dict[str, Any]] = [

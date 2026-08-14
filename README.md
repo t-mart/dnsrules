@@ -1,16 +1,241 @@
 # dnsrules
 
-A DNS log and control plane for the home network. It shows every query that
-unbound answers, and it blocks or unblocks names from the same page.
+A DNS log and block dashboard for
+[Unbound](https://github.com/NLnetLabs/unbound). Similar to the DNS management
+sides of Pi-hole and AdGuard Home.
 
-See [the TODO](TODO.md) for the design of record and the outstanding work.
+- A dashboard counts the traffic over a window from 15 minutes to a week.
+- A query log lists every question a client asked, with the answer, the reply
+  time, and what stopped it. Filter by client, name, record type, status, and
+  time.
+- A rules page lists block rules or allow rules (for overriding an RPZ list).
+  Add, edit, and delete them here, and read the result of the last transfer to
+  Unbound.
+
+Limitation: dnsrules can only provide a single RPZ zone to unbound.
+
+## Rules
+
+A rule is a domain and an action. Wildcards are accepted, as `*.example.com`.
+
+| Action               | Answer             | Use it for                            |
+| -------------------- | ------------------ | ------------------------------------- |
+| Block                | NXDOMAIN           | a name you do not want resolved       |
+| Block, answer NODATA | NOERROR, no answer | a name that must exist but stay empty |
+| Allow                | the real answer    | a false positive in the blocklist     |
+
+An allow rule overrides the blocklist. For example, your RPZ blocklist zone may
+work well in 99% of cases, but you need to reach a site that it blocks. In this
+case, you can override it with an allow rule for that domain.
+
+A rule is permanent, or it expires after 15 minutes, an hour, 8 hours, a day, or
+a week.
+
+## How it works
+
+To get query log information, dnsrules consumes Unbound's dnstap stream and
+writes it to PostgreSQL. The web interface reads the log from the database.
+
+This makes it easy to see which rules are being applied to which clients.
+
+dnsrules renders the rules as an RPZ zone and serves it over HTTP. Then, Unbound
+can consume it just like any other in its config. To prompt Unbound to refetch
+the rules when you change them, dnsrules uses Unbound's remote control.
+
+When configured, Unbound does not depend on dnsrules. This is important: if
+dnsrules encounters a problem, Unbound will still work. (However, the rules may
+be stale until the problem is fixed.)
 
 ## Requirements
 
-- Python 3.14
-- PostgreSQL
-- [uv](https://docs.astral.sh/uv/)
-- [just](https://just.systems/)
+- Unbound, with RPZ, remote control, and dnstap enabled. See
+  [Configure Unbound](#configure-unbound).
+- PostgreSQL, on this host or another one. It holds the rules and the query log.
+- Python 3.14 and [uv](https://docs.astral.sh/uv/).
+- [just](https://just.systems/), for development.
+
+## Setup
+
+```
+uv tool install git+https://github.com/t-mart/dnsrules
+dnsrules secret  # print a key for the environment file
+dnsrules serve  # run the website
+dnsrules createsuperuser  # create the first account
+```
+
+`serve` runs the website, the query log, and the jobs in one process. It applies
+the database migrations first, so an upgrade is an install and a restart.
+
+### Systemd
+
+Install to a fixed path, so the unit can name it:
+
+```
+sudo env UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/opt/dnsrules \
+    uv tool install git+https://github.com/t-mart/dnsrules
+```
+
+Put the settings in `/etc/dnsrules.env`, then write
+`/etc/systemd/system/dnsrules.service`:
+
+```ini
+[Unit]
+Description=dnsrules
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=dnsrules
+EnvironmentFile=/etc/dnsrules.env
+ExecStart=/usr/local/bin/dnsrules serve
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```
+sudo systemctl enable --now dnsrules
+```
+
+`Restart=always` covers a database that is not up yet. There is no dependency on
+`unbound.service` in either direction: Unbound falls back to its `zonefile`, and
+dnsrules records a failed transfer and tries again.
+
+### Docker Compose
+
+dnsrules has to reach Unbound's control port and receive the dnstap stream, and
+both are on loopback. Host networking is the simplest way to keep that true.
+
+```yaml
+services:
+  dnsrules:
+    build: https://github.com/t-mart/dnsrules.git
+    network_mode: host # so 127.0.0.1 is the host, where Unbound runs
+    env_file: .env # set DNSRULES_BIND, or it answers on every interface
+    restart: unless-stopped
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: dnsrules
+      POSTGRES_USER: dnsrules
+      POSTGRES_PASSWORD: ${DNSRULES_DB_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432" # host networking reaches it here
+    volumes:
+      - db:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  db:
+```
+
+```
+docker compose up --detach
+docker compose exec dnsrules dnsrules createsuperuser
+```
+
+Run Unbound in a container too, and neither side can use loopback or a host
+name: `dnstap-ip` takes no host name, and a resolver cannot use DNS to find the
+thing that configures it. Give each container a fixed address on a private
+network. [compose.yaml](compose.yaml) does this for development.
+
+## Configuration
+
+Every setting is a `DNSRULES_` environment variable.
+[.env.example](.env.example) lists them all with their defaults.
+
+| Variable                       | Sets                                                |
+| ------------------------------ | --------------------------------------------------- |
+| `SECRET_KEY`                   | Signs the session cookies.                          |
+| `BIND`                         | The address and port the website answers on.        |
+| `ALLOWED_HOSTS`                | The host names the site accepts.                    |
+| `CSRF_TRUSTED_ORIGINS`         | Extra origins, for a reverse proxy.                 |
+| `TIME_ZONE`                    | The zone the site prints times in.                  |
+| `DB_NAME`, `DB_USER`, `DB_...` | The PostgreSQL connection.                          |
+| `DNSTAP_HOST`, `DNSTAP_PORT`   | Where Unbound sends the query stream.               |
+| `CONTROL_HOST`, `CONTROL_PORT` | Unbound's remote control.                           |
+| `RPZ_NAME`                     | The file name of the RPZ zone (`/rpz/<name>.zone`). |
+| `RPZ_ZONE`                     | The name dnsrules passes to `auth_zone_transfer`.   |
+| `DEBUG`                        | Django debug mode.                                  |
+
+## Configure Unbound
+
+Example `unbound.conf`. Tailor to your needs.
+
+```
+server:
+    # respip is required for RPZ. define-tag must come before any use of a tag.
+    module-config: "respip validator iterator"
+    define-tag: "filtered"
+
+    # An RPZ zone applies to a client only through a tag it carries.
+    access-control: 10.0.0.0/24 allow
+    access-control-tag: 10.0.0.0/24 "filtered"
+
+# The dnsrules zone comes first, so an allow rule here beats a block below.
+rpz:
+    # See `RPZ_ZONE`
+    name: "dnsrules"
+    # See `RPZ_NAME`
+    url: "http://127.0.0.1:8000/rpz/dnsrules.zone"
+    zonefile: "/var/lib/unbound/rpz-dnsrules.zone"
+    tags: "filtered"
+    rpz-signal-nxdomain-ra: yes
+
+# Your blocklist, for example one of https://github.com/hagezi/dns-blocklists
+rpz:
+    name: "blocklist"
+    url: "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/rpz/pro.txt"
+    zonefile: "/var/lib/unbound/rpz-blocklist.zone"
+    tags: "filtered"
+    rpz-signal-nxdomain-ra: yes
+
+remote-control:
+    control-enable: yes
+    control-interface: 127.0.0.1
+    control-use-cert: no
+
+dnstap:
+    dnstap-enable: yes
+    dnstap-ip: "127.0.0.1@6000"
+    dnstap-bidirectional: no
+    dnstap-log-client-query-messages: yes
+    dnstap-log-client-response-messages: yes
+```
+
+Order matters. Unbound reads RPZ zones in the order they appear, and the first
+match wins, so the dnsrules zone must come before any blocklist it overrides.
+
+Keep `zonefile` on both. It holds the last fetch, so Unbound reloads the rules
+at every start, and a dnsrules outage never unblocks the network.
+
+`rpz-signal-nxdomain-ra` clears the RA bit on a blocked answer. Without it, the
+query log cannot tell a blocked name from a name that does not exist.
+
+`DNSRULES_RPZ_NAME` is the file name of the RPZ zone (`/rpz/<name>.zone`) and
+defaults to `dnsrules`. `DNSRULES_RPZ_ZONE` is the name dnsrules passes to
+`auth_zone_transfer`.
+
+It may be ideal to keep `dnstap-ip` and `control-interface` on `127.0.0.1`. The
+dnstap stream exposes browsing history, and remote control has no password, so
+whoever reaches that port can drive the resolver.
+
+## Jobs
+
+Three jobs run in the background.
+
+| Job         | Every    | Does                             |
+| ----------- | -------- | -------------------------------- |
+| `transfer`  | 1 hour   | Tells Unbound to fetch the rules |
+| `prune`     | 1 minute | Deletes expired rules            |
+| `retention` | 1 day    | Deletes query rows past 30 days  |
+
+A rule change makes the transfer job due at once, so the hourly run is just a
+safety net. A job that fails is recorded and runs again in 30 seconds, and the
+rules page reports the last failure.
 
 ## Development
 
@@ -19,345 +244,40 @@ cp .env.example .env
 just manage migrate
 just manage createsuperuser
 just dev
-just worker
-just ingest
-just unbound
 ```
 
-Then open `http://127.0.0.1:8000/rules/` and sign in.
-
-`just dev`, `just worker`, `just ingest`, and `just unbound` run at once, in
-their own terminals. `serve` runs the first three in one process, but
-development keeps them apart so a traceback lands where you can see it.
-
-Migrations create one group, `home`, which is why the dev resolver fetches
-`/rpz/home.zone`. Its `zone` field is what `unbound.conf` calls that zone.
-
-`just unbound` runs a real resolver that fetches its rules from `just dev`. It
-reaches the host across the docker bridge, so the server binds `0.0.0.0` and
-`DNSRULES_ALLOWED_HOSTS` names the gateway. Both are in `.env.example`.
-
-Every command is a Django management command. `manage.py` is a development shim.
-Deployments call the `dnsrules` console script, which is the same entry point.
-Run `just manage <command>` in development, because the justfile loads `.env`
-and a bare shell does not.
-
-## Configuration
-
-All settings read `DNSRULES_` environment variables. `.env.example` lists them
-with their defaults. `settings.py` must import with an empty environment, and a
-test enforces this.
-
-## Database
-
-PostgreSQL. Development uses `bayleaf.gothere.dev`, where the database and the
-role exist already. The role needs `CREATEDB`, because pytest builds its own
-test database:
-
-```
-psql --host bayleaf.gothere.dev --username postgres --command "ALTER ROLE dnsrules_test CREATEDB"
-```
-
-## unbound
-
-`src/dnsrules/unbound/` holds every part that touches the resolver. It imports
-no Django, so it tests without a database.
-
-There are three interfaces, and all of them are TCP to localhost:
-
-| Direction      | Interface      | Carries                      |
-| -------------- | -------------- | ---------------------------- |
-| Out of unbound | dnstap         | every query and every answer |
-| Out of unbound | HTTP           | unbound fetches the rules    |
-| Into unbound   | remote control | "fetch the rules again"      |
-
-**dnsrules writes no file that unbound reads, and it never writes unbound
-configuration.** A bad configuration file stops unbound from starting, and the
-whole house loses DNS.
-
-unbound needs this, and nothing else:
-
-```
-rpz:
-    name: "runtime_rules"
-    url: "http://127.0.0.1:8000/rpz/home.zone"
-    zonefile: "/etc/unbound/zones/rpz-runtime-rules.zone"
-    tags: "dns_privacy"
-
-remote-control:
-    control-enable: yes
-    control-interface: 127.0.0.1
-    control-use-cert: no
-```
-
-The `rpz` block comes before the blocklist, so an allow rule beats a block.
-`zonefile` is what makes a dnsrules outage safe: unbound keeps the last fetch
-and reloads it at every start.
-
-Plain text control means that anyone who reaches the port drives the resolver.
-Bind it to loopback, or to a private container network. Never `0.0.0.0`.
-
-### Rules
-
-Each group has its own zone, served at `/rpz/<group>.zone`. dnsrules renders the
-whole thing, SOA included. One rule is one line:
-
-| Action             | Line                          | Answer             |
-| ------------------ | ----------------------------- | ------------------ |
-| Block              | `<domain> CNAME .`            | NXDOMAIN           |
-| Block with no data | `<domain> CNAME *.`           | NOERROR, no answer |
-| Allow              | `<domain> CNAME rpz-passthru.` | Resolve, and skip every later zone |
-
-A rule change sets the transfer job due. The worker raises the serial and sends
-`auth_zone_transfer runtime_rules` over the control interface, and unbound
-refetches at once. RPZ is applied before the cache, so a removed rule takes
-effect even while the old answer is still cached.
-
-That reply proves nothing. unbound answers `ok` before it fetches, and it
-answers `ok` when the fetch fails outright. So the worker reads the serial back
-with `list_auth_zones` and compares it against the one it published. That is
-the only thing that separates a rule which landed from one which did not, and
-it also catches a zone name that this and `unbound.conf` spell differently.
-
-The serial arrives about 30 ms after the transfer, so the check waits for it.
-The wait is in the worker, never in a request.
-
-One process talks to unbound, so a slow or unreachable resolver never holds up a
-page. The website reports what the last transfer did and moves on.
-
-The trigger is an optimisation, not the mechanism. A lost trigger costs one SOA
-refresh interval, and never correctness.
-
-## Containers
-
-```
-just up
-just down
-```
-
-`compose.yaml` runs both halves: one dnsrules container and one unbound. Only
-the website reaches beyond loopback, and the two containers talk on a private
-network. Postgres is not there, because it lives on another host in development
-and on the router in production. `.env` names it.
-
-The addresses in `compose.yaml` are fixed on purpose. `dnstap-ip` takes no
-hostname, and a resolver cannot use DNS to find the thing that configures it.
-`dev/entrypoint.sh` substitutes that one address at start, so the same unbound
-image serves both `just unbound` and the compose stack.
-
-A container cannot reach the host resolver at `127.0.0.53`, and the database
-answers to a tailnet name. `COMPOSE_DNS` names the resolver to use instead, and
-it defaults to tailscale MagicDNS.
-
-`serve` applies the migrations before it serves, so a deploy is a pull and a
-restart.
-
-## Jobs
-
-Three recurring jobs, in one Postgres table. There is no broker and no second
-process.
-
-| Job | Every | Does |
-| --- | --- | --- |
-| `transfer` | 1 hour | Raises the serials and tells unbound |
-| `prune` | 1 minute | Deletes expired rules |
-| `retention` | 1 day | Deletes query rows past 30 days |
-
-A worker claims the next due row with `FOR UPDATE SKIP LOCKED` and holds that
-lock until the job returns, so a second worker takes the next job rather than
-the same one. A job that raises is recorded in `last_error` and comes back in
-30 seconds, because a worker that dies on one bad job stops every other.
-
-`SCHEDULE` in `core/jobs.py` names each target as a string. The jobs live in the
-other apps, and those apps import this one.
-
-`serve` runs the website, the ingest, and the jobs in one process. It takes one
-gunicorn worker on purpose: the threads start from `post_worker_init`, after the
-fork, so no database connection is ever shared by two processes.
-
-Nothing builds a line from raw input. The domain is validated, and the right
-hand side comes from the fixed table above.
-
-### Testing against a real resolver
-
-`just unbound` starts unbound 1.26.0 in a container, with an RPZ feed, a view,
-and control on `127.0.0.1:8953`. It fetches its rules from `just dev` on the
-host. `dev/` holds its configuration.
-
-```
-just unbound
-just control status
-just dig example.com A
-```
-
-Use it to answer questions about the resolver rather than reasoning about them.
-The answers that shaped this design are recorded in [the TODO](TODO.md).
-
-## The query log
-
-`dnsrules ingest` listens for the dnstap stream and writes one row for each
-question a client asked. unbound is the client on that socket: it connects out
-to `DNSRULES_DNSTAP_HOST` and `DNSRULES_DNSTAP_PORT`, and it reconnects about
-once a second while nothing listens.
-
-The pipeline is a chain of generators, so memory holds one batch and the queries
-still waiting for an answer:
-
-```
-bytes -> frames -> records -> exchanges -> rows
-```
-
-A query and its answer arrive as two dnstap messages. unbound stamps the answer
-with `response_time` and never with `query_time`, so reply time exists only
-across the pair. The key is client, port, name, and type, and it repeats,
-because clients reuse a source port. Each key holds a queue, and the oldest
-query takes the next answer.
-
-`/queries/` shows the rows, with a filter on each column and a control on each
-row. Block or allow a name from the row that shows it, for an hour or for good.
-A second click replaces the first rule rather than adding a second one.
-
-### What stopped an answer
-
-`blocked_by` holds `rule` or `feed`, and it is stamped at ingest. The two come
-from different places, because one answer cannot say both.
-
-A blocked answer carries exactly one usable signal: `rpz-signal-nxdomain-ra:
-yes` clears the RA bit on a policy NXDOMAIN. That covers the feed. It cannot
-name the zone, and it never sees a `CNAME *.` rule, because NODATA reads exactly
-like a legitimate empty answer.
-
-So a rule is read from the rules table instead, which is exact and also names
-it. The table is cached for a minute, so a day of rows costs one read.
-
-The AA bit looks like a better signal and is not. unbound sets it for every
-local zone, including the LAN names and `.invalid`.
-
-Run `just probe` next to `just unbound` to see the flags for yourself.
-
-### The dashboard
-
-`/` counts the same rows: queries over time, the names blocked and asked for
-most, and a breakdown by client. Each bar links into the log with the window it
-was drawn for, so a name in a chart is one click from its rows.
-
-The timeline is Chart.js from a CDN, pinned to its hash. It is the one thing
-this project loads from the network, and only on this page. htmx is vendored
-instead, because the rules panel has to work when DNS is broken. A chart that
-does not draw costs a chart, and `charts.js` says so in the page.
-
-Take the UMD build, `chart.umd.min.js`. The `chart.min.js` that cdnjs offers
-first is an ES module, and a plain script tag stops on its first import
-statement.
-
-The tables are bars, and they are CSS. A bar is one count against the largest
-count, which is a percentage, and a percentage needs no library.
-
-htmx replaces the whole panel, canvas included. `charts.js` draws the new one
-from `htmx:after:process` and destroys the old chart, because Chart.js holds
-the canvas it drew into until it is told otherwise. htmx processes the document
-as soon as it runs, which is before a later deferred script runs, so the first
-chart is drawn by a direct call and not by that callback.
-
-A quiet bucket has no row in the database. The empty buckets are made in
-Python, because a chart that skipped them would draw a silent hour as if it
-never happened.
-
-The window runs from 15 minutes to a week, and not further. One load is four
-aggregates over the table the ingest writes. Measured on 250,000 rows, the day
-window costs seven statements and 0.24 seconds.
-
-### Retention
-
-Rows live 30 days, in one table, and the retention job deletes the rest.
-Measured on one sample, the house makes about 250,000 queries a day, so that is
-near 7.5 million rows. Postgres does not notice that many, and `at` carries a
-BRIN index because the rows arrive in time order.
-
-## dnstap
-
-`assets/dnstap.proto` is the schema, taken from the dnstap project by way of the
-unbound source. `just proto` regenerates `dnstap_pb2.py` and `dnstap_pb2.pyi`
-into `src/dnsrules/unbound/`.
-
-Both generated files are committed. `uv tool install git+...` builds a wheel
-from the git tree and cannot run protoc. The stub comes too, because protoc
-builds the classes at import time and a type checker sees nothing without it.
-
-`protobuf` is the runtime that the generated code imports. `protoc` is the
-compiler that writes it. They version together: protoc 35.1 emits code that
-demands the 7.35.1 Python runtime or newer.
-
-## Frontend
-
-The frontend is [htmx 4.0.0-beta6](https://four.htmx.org/), vendored at
-`src/dnsrules/static/dnsrules/htmx.min.js`. There is no CDN. The panel must work
-when DNS or the reverse proxy is broken, so it loads nothing from the network.
-
-The stylesheet at `src/dnsrules/static/dnsrules/app.css` is written by hand, and
-there is no build step. Elements carry the styling, and a class appears only
-where the markup cannot say what a thing is: a message, a state, or a layout
-that has no element. A test fails when a template names a class the stylesheet
-does not define.
-
-Four rules that htmx 1 and 2 documentation gets wrong. Read
-[the htmx 4 docs](https://four.htmx.org/llms-full.txt), never an older guide.
-
-- Attribute inheritance is explicit, and it reaches descendants only. The CSRF
-  header needs `hx-headers:inherited`, not `hx-headers`. The rules panel
-  declares `hx-target:inherited` and `hx-swap:inherited` once on its root.
-- The default swap is `innerHTML`. Every control that replaces the panel states
-  `outerHTML`, otherwise the panel nests inside itself.
-- htmx swaps every response except 204 and 304. `base.html` adds `5xx` to
-  `noSwap`, so a server fault does not replace the page. A 4xx still swaps, so
-  an invalid form answers 422 with its own errors.
-- `hx-confirm` is no longer part of the core.
-
-## Fixtures
-
-The dnstap stream uses a format this project does not control. A stream written
-here would test the reader against its own assumptions, so one shared misreading
-would pass every test and fail on the router. Capture real bytes instead, and
-replay them.
-
-`tests/fixtures/dnstap.fstrm` holds a capture. **It is never committed.** It
-records every DNS query the house made during its window, which is a browsing
-history. `.gitignore` lists it, and every test that needs it skips when it is
-absent. `pytest` runs with `-rs`, so a skip always prints its reason.
-
-`.fstrm` is Frame Streams, the envelope around each message: a 4 byte big-endian
-length, then the payload. A zero length escapes to a control frame. Each data
-frame payload is a protobuf `dnstap.Dnstap` message.
-
-To capture one, write this listener on the router:
-
-```nu
-'import socket
-import sys
-
-path, port = sys.argv[1], int(sys.argv[2])
-listener = socket.create_server(("127.0.0.1", port))
-print(f"Listening on 127.0.0.1:{port}. Stop with Ctrl-C.")
-connection, peer = listener.accept()
-total = 0
-try:
-    with open(path, "wb") as out:
-        while chunk := connection.recv(65536):
-            out.write(chunk)
-            total += len(chunk)
-finally:
-    print(f"Wrote {total} bytes to {path}.")
-' | save --force /tmp/capture.py
-```
-
-Run it for about ten seconds, then stop it with Ctrl-C. unbound connects out, so
-nothing needs to be installed and no port needs to open.
-
-```nu
-python3 /tmp/capture.py /tmp/dnstap.fstrm 6000
-strings /tmp/dnstap.fstrm | uniq | first 50
-scp mace:/tmp/dnstap.fstrm tests/fixtures/dnstap.fstrm
-```
-
-Read it with `strings` before it leaves the router. Delete it and capture again
-at a quieter moment if it holds anything you would rather not keep.
+Then open `http://127.0.0.1:8000/` and sign in.
+
+Run `just dev`, `just worker`, `just ingest`, and `just unbound` at once, in
+four terminals. `serve` runs the first three in one process, but development
+keeps them apart so a traceback lands where you can see it.
+
+| Recipe                 | Does                                          |
+| ---------------------- | --------------------------------------------- |
+| `just dev`             | Run the development server                    |
+| `just worker`          | Run the recurring jobs                        |
+| `just ingest`          | Write the query log                           |
+| `just unbound`         | Start a real resolver to test against         |
+| `just unbound-stop`    | Stop it                                       |
+| `just control ARGS`    | Run one `unbound-control` command against it  |
+| `just dig ARGS`        | Ask it a question                             |
+| `just probe`           | Print the answer flags for each kind of block |
+| `just up`, `just down` | Run both halves in containers                 |
+| `just manage ARGS`     | Run a management command                      |
+| `just check`           | Run every format, lint, type, and test check  |
+| `just fix`             | Apply format and lint fixes                   |
+| `just proto`           | Regenerate the dnstap module                  |
+| `just wheel`           | Build the wheel and list its assets           |
+
+`just up` runs both halves in containers. It is a test tool. The deployment
+installs the package and runs it under systemd.
+
+Read [DEVELOPMENT.md](DEVELOPMENT.md) before a change to the frontend, the
+dnstap reader, or the test fixtures.
+
+## Documents
+
+| Document                         | Holds                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| [TODO.md](TODO.md)               | The design of record, the measured resolver behaviour, and the outstanding work |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Notes for a change to this code                                                 |

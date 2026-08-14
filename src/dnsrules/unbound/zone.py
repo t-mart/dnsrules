@@ -4,8 +4,8 @@ dnsrules serves this text over HTTP and unbound fetches it. Nothing here
 touches a file.
 
 Nothing here builds a right hand side from user input. `RIGHT_HAND_SIDE` holds
-every legal one, and a rule selects from it. On mace, two rules once fused into
-one line:
+every legal one, and a rule selects from it. Two rules once fused into one
+line:
 
     google-analytics.com CNAME rpz-passthru.example.com CNAME .
 

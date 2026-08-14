@@ -115,6 +115,12 @@ DNSTAP_PORT = int(env("DNSTAP_PORT", "6000"))
 UNBOUND_CONTROL_HOST = env("CONTROL_HOST", "127.0.0.1")
 UNBOUND_CONTROL_PORT = int(env("CONTROL_PORT", "8953"))
 
+# The rules zone. dnsrules serves it at `/rpz/<RPZ_NAME>.zone`, and unbound.conf
+# names it RPZ_ZONE. Both must match unbound.conf, and both are read when the
+# database is created. After that the row holds them.
+RPZ_NAME = env("RPZ_NAME", "dnsrules")
+RPZ_ZONE = env("RPZ_ZONE", "dnsrules")
+
 _VALIDATION = "django.contrib.auth.password_validation"
 
 AUTH_PASSWORD_VALIDATORS = [
