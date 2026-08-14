@@ -79,11 +79,12 @@ def run_due(now: timezone.datetime | None = None) -> str | None:
         if job is None:
             return None
         interval, target = SCHEDULE[job.name]
+        claimed_run_at = now + interval
         # Take the job off the queue before running it, so the lock covers the
         # claim alone. A worker that dies mid job costs one interval, where a
         # lock held across the work would leave the row claimed until the
         # connection dropped.
-        Job.objects.filter(pk=job.pk).update(run_at=now + interval)
+        Job.objects.filter(pk=job.pk).update(run_at=claimed_run_at)
 
     error = ""
     try:
@@ -91,10 +92,12 @@ def run_due(now: timezone.datetime | None = None) -> str | None:
     except Exception as problem:
         logger.exception("The job %s failed.", job.name)
         error = f"{type(problem).__name__}: {problem}"
-        interval = RETRY
-    Job.objects.filter(pk=job.pk).update(
-        last_error=error, last_run=now, run_at=now + interval
-    )
+    with transaction.atomic():
+        Job.objects.filter(pk=job.pk).update(last_error=error, last_run=now)
+        if error:
+            Job.objects.filter(pk=job.pk, run_at=claimed_run_at).update(
+                run_at=now + RETRY
+            )
     return job.name
 
 

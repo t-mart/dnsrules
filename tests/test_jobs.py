@@ -115,6 +115,23 @@ def test_nudge_makes_a_job_due_now(schedule):
     assert jobs.run_due() == "counter"
 
 
+def nudge_counter() -> None:
+    jobs.nudge("counter")
+
+
+def test_a_nudge_during_a_run_is_not_lost(monkeypatch):
+    monkeypatch.setattr(
+        jobs,
+        "SCHEDULE",
+        {"counter": (timedelta(minutes=5), "test_jobs.nudge_counter")},
+    )
+    jobs.sync()
+
+    jobs.run_due()
+
+    assert Job.objects.get(name="counter").run_at <= timezone.now()
+
+
 def test_run_all_due_takes_every_job_that_is_waiting(monkeypatch):
     monkeypatch.setattr(
         jobs,
