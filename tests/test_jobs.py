@@ -6,12 +6,16 @@ The lock is the point. Everything else here is a table with a timestamp in it.
 from datetime import timedelta
 
 import pytest
+from django.db import connection
 from django.utils import timezone
 
 from dnsrules.core import jobs
 from dnsrules.core.models import Job
 
-pytestmark = pytest.mark.django_db
+# `django_db` wraps each test in a transaction, which would hide the thing
+# `test_a_job_runs_outside_a_transaction` measures. transaction=True gives
+# these tests a real commit boundary, as the worker has.
+pytestmark = pytest.mark.django_db(transaction=True)
 
 
 @pytest.fixture
@@ -126,6 +130,29 @@ def test_run_all_due_takes_every_job_that_is_waiting(monkeypatch):
 
 def boom() -> None:
     raise RuntimeError("the resolver is out")
+
+
+ATOMIC: list = []
+
+
+def note_atomic() -> None:
+    ATOMIC.append(connection.in_atomic_block)
+
+
+def test_a_job_runs_outside_a_transaction(monkeypatch):
+    """`reconcile` raises a serial, then asks unbound to fetch it. unbound
+    reads that serial back over HTTP on another connection, so a serial still
+    inside this transaction is one it can never see, and the confirmation can
+    never pass."""
+    monkeypatch.setattr(
+        jobs, "SCHEDULE", {"counter": (timedelta(minutes=5), "test_jobs.note_atomic")}
+    )
+    monkeypatch.setattr("test_jobs.ATOMIC", [])
+    jobs.sync()
+
+    jobs.run_due()
+
+    assert ATOMIC == [False]
 
 
 def test_every_scheduled_target_imports():

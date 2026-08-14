@@ -24,4 +24,15 @@ RUN uv sync --frozen --no-dev
 # dnstap stream, which unbound connects out to.
 EXPOSE 8000 6000
 
+# dnsrules writes no file, and both ports are above 1024, so nothing here needs
+# root. The tree stays owned by root and is read only to this user.
+RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin dnsrules
+USER dnsrules
+
+# The site answers, Django renders, and the database replies. `/login/` needs no
+# session, and it is the one page a healthcheck can reach. There is no curl in
+# this image, and there is a Python.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/login/', timeout=4)"]
+
 CMD ["dnsrules", "serve"]

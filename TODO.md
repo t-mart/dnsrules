@@ -160,13 +160,49 @@ The htmx endpoints did not change. One migration, to drop the second name.
 zone. That is wasteful and harmless at this size. Scope it to the changed zone
 only if a deployment ever runs enough zones to notice.
 
-## 3. Deployment
+## 3. The transfer job could never succeed
 
-- [ ] A healthcheck for each service in `compose.yaml`.
-- [ ] Run the container as a user other than root.
-- [ ] Decide whether an image is published, and where.
+Done. Found by running the compose stack, not by a test.
 
-## By hand, once a resolver serves a zone
+`run_due` held the job inside `transaction.atomic()`. `reconcile` raises the
+serial, then asks unbound to fetch it, and unbound reads that serial back over
+HTTP on another connection. An uncommitted serial is one unbound cannot see, so
+the confirmation timed out every time and rolled the bump back. **No rule change
+reached the resolver through the worker.** Measured against the running stack:
+
+```
+reconcile in autocommit          ok, serial 17
+reconcile inside a transaction   FAILED: unbound holds dnsrules at 17, not 18
+```
+
+The tests missed it because the fixture answers `auth_zones` from the same
+transaction, where the bump is visible. The live check missed it because it
+called `reconcile` from a shell, which is autocommit.
+
+- [x] `run_due` claims the row, pushes `run_at` forward, and commits. The job
+      then runs outside any transaction, and one more short write records the
+      result.
+- [x] A test asserts `connection.in_atomic_block` is false inside a job. It
+      needs `django_db(transaction=True)`, because the ordinary fixture wraps
+      each test in the transaction it is trying to measure.
+
+A job that dies mid run now costs one interval instead of holding the row until
+its connection drops. `prune` no longer rolls back its deletes when the transfer
+that follows them fails, which is right: the rules are gone, and the zone says
+so at the next fetch.
+
+## 4. Deployment
+
+- [x] A healthcheck for each service. The image carries the dnsrules one, so
+      `just up` and a bare `docker run` both get it. unbound answers
+      `unbound-control status` once it has read its config and bound its ports.
+- [x] Run the container as a user other than root. dnsrules writes no file and
+      both ports are above 1024, so nothing needed root.
+- [x] Decide whether an image is published. No. A deployment installs the wheel
+      and runs it under systemd, and `compose.yaml` builds from the repository
+      for testing.
+
+## 5. By hand, once a resolver serves a zone
 
 - [ ] Add `use-application-dns.net` as a block-with-no-data rule. It is the
       Firefox DoH canary. As a rule it reaches every tagged client, where a view

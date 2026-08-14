@@ -1,9 +1,16 @@
 """Run the recurring jobs.
 
 The schedule is a table. A worker claims the next due row with `FOR UPDATE SKIP
-LOCKED` and holds that lock for the whole run, so a second worker takes the next
+LOCKED` and pushes it forward before it runs, so a second worker takes the next
 job rather than the same one. Nothing else is needed: no broker, no queue, and
 no second process.
+
+The claim and the result are each one short transaction. **The job itself runs
+between them, in neither.** A job that drives another process needs its writes
+visible to that process: `reconcile` raises a serial and then asks unbound to
+fetch it, and unbound reads that serial over HTTP on another connection. An
+uncommitted serial is one unbound cannot see, so a job held inside a
+transaction could never succeed.
 
 Each target is named as a string rather than imported. The jobs live in the
 other apps, and those apps import this one.
@@ -58,8 +65,8 @@ def nudge(name: str) -> None:
 def run_due(now: timezone.datetime | None = None) -> str | None:
     """Run one due job. Returns its name, or None when none is due.
 
-    The lock is held for the whole run. A job that raises is recorded rather
-    than reraised, because a worker that dies on one bad job stops every other.
+    A job that raises is recorded rather than reraised, because a worker that
+    dies on one bad job stops every other.
     """
     now = now or timezone.now()
     with transaction.atomic():
@@ -72,21 +79,23 @@ def run_due(now: timezone.datetime | None = None) -> str | None:
         if job is None:
             return None
         interval, target = SCHEDULE[job.name]
-        try:
-            # A savepoint, so a job that breaks its own transaction still
-            # leaves this row writable.
-            with transaction.atomic():
-                import_string(target)()
-        except Exception as problem:
-            logger.exception("The job %s failed.", job.name)
-            job.last_error = f"{type(problem).__name__}: {problem}"
-            interval = RETRY
-        else:
-            job.last_error = ""
-        job.last_run = now
-        job.run_at = now + interval
-        job.save()
-        return job.name
+        # Take the job off the queue before running it, so the lock covers the
+        # claim alone. A worker that dies mid job costs one interval, where a
+        # lock held across the work would leave the row claimed until the
+        # connection dropped.
+        Job.objects.filter(pk=job.pk).update(run_at=now + interval)
+
+    error = ""
+    try:
+        import_string(target)()
+    except Exception as problem:
+        logger.exception("The job %s failed.", job.name)
+        error = f"{type(problem).__name__}: {problem}"
+        interval = RETRY
+    Job.objects.filter(pk=job.pk).update(
+        last_error=error, last_run=now, run_at=now + interval
+    )
+    return job.name
 
 
 def run_all_due() -> int:

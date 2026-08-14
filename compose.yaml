@@ -34,6 +34,10 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
+    # The Dockerfile carries the check. Give it longer to come up here, because
+    # the first start runs the migrations against a database on another host.
+    healthcheck:
+      start_period: 60s
 
   unbound:
     build: dev
@@ -51,3 +55,11 @@ services:
       - "127.0.0.1:5354:53/udp"
       - "127.0.0.1:8953:8953"
     restart: unless-stopped
+    # `status` answers only once unbound has read its config and bound its
+    # ports, which is the whole question here.
+    healthcheck:
+      test: ["CMD", "unbound-control", "status"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
