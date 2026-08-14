@@ -11,15 +11,6 @@ sides of Pi-hole and AdGuard Home.
   Add, edit, and delete them here, and read the result of the last transfer to
   Unbound.
 
-Limitations:
-
-- The log marks an answer blocked. It does not say which RPZ zone blocked it.
-  Unbound reports no zone, and no command maps a client to one.
-- A NODATA rule does not reach the log. That answer carries no signal that
-  separates it from an ordinary empty answer.
-- dnsrules cannot show which clients a zone reaches. `tags` in `unbound.conf`
-  decides that, and nothing reports it back.
-
 ## Rules
 
 A rule is a domain and an action. Wildcards are accepted, as `*.example.com`.
@@ -30,9 +21,18 @@ A rule is a domain and an action. Wildcards are accepted, as `*.example.com`.
 | Block, answer NODATA | NOERROR, no answer | a name that must exist but stay empty |
 | Allow                | the real answer    | a false positive in the blocklist     |
 
-An allow rule overrides the blocklist. For example, your RPZ blocklist zone may
-work well in 99% of cases, but you need to reach a site that it blocks. In this
-case, you can override it with an allow rule for that domain.
+In most cases, you will write NXDOMAIN rules to block a name. This indicates to
+applications that the name does not exist.
+
+A NODATA rule is useful when you want an application to see that a name exists,
+but you do not want there to be any records served on it. (I actually don't even
+know what I'd want that, but whatever.) Note: A NODATA rule does not reach the
+log. TODO: should we delete the NODATA option?
+
+Allow rules are helpful to override later RPZ zones that block it. For example,
+you might configure a client to use a blocklist, but you need to reach a site
+that it blocks. In this case, you can override it with an allow rule for that
+domain that will take precedence.
 
 A rule is permanent, or it expires after 15 minutes, an hour, 8 hours, a day, or
 a week.
@@ -153,18 +153,18 @@ network. [compose.yaml](compose.yaml) does this for development.
 Every setting is a `DNSRULES_` environment variable.
 [.env.example](.env.example) lists them all with their defaults.
 
-| Variable                       | Sets                                                |
-| ------------------------------ | --------------------------------------------------- |
-| `SECRET_KEY`                   | Signs the session cookies.                          |
-| `BIND`                         | The address and port the website answers on.        |
-| `ALLOWED_HOSTS`                | The host names the site accepts.                    |
-| `CSRF_TRUSTED_ORIGINS`         | Extra origins, for a reverse proxy.                 |
-| `TIME_ZONE`                    | The zone the site prints times in.                  |
-| `DB_NAME`, `DB_USER`, `DB_...` | The PostgreSQL connection.                          |
-| `DNSTAP_HOST`, `DNSTAP_PORT`   | Where Unbound sends the query stream.               |
-| `CONTROL_HOST`, `CONTROL_PORT` | Unbound's remote control.                           |
-| `RPZ_ZONES`                    | The rules zones, comma separated.                   |
-| `DEBUG`                        | Django debug mode.                                  |
+| Variable                       | Sets                                         |
+| ------------------------------ | -------------------------------------------- |
+| `SECRET_KEY`                   | Signs the session cookies.                   |
+| `BIND`                         | The address and port the website answers on. |
+| `ALLOWED_HOSTS`                | The host names the site accepts.             |
+| `CSRF_TRUSTED_ORIGINS`         | Extra origins, for a reverse proxy.          |
+| `TIME_ZONE`                    | The zone the site prints times in.           |
+| `DB_NAME`, `DB_USER`, `DB_...` | The PostgreSQL connection.                   |
+| `DNSTAP_HOST`, `DNSTAP_PORT`   | Where Unbound sends the query stream.        |
+| `CONTROL_HOST`, `CONTROL_PORT` | Unbound's remote control.                    |
+| `RPZ_ZONES`                    | The rules zones, comma separated.            |
+| `DEBUG`                        | Django debug mode.                           |
 
 ## Configure Unbound
 
