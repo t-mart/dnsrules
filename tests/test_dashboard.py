@@ -4,7 +4,7 @@ import pytest
 from django.utils import timezone
 
 from dnsrules.queries import stats
-from dnsrules.queries.models import BlockedBy, Client, Query
+from dnsrules.queries.models import Client, Query
 
 pytestmark = pytest.mark.django_db
 
@@ -19,7 +19,7 @@ def admin(client, django_user_model):
     return user
 
 
-def log(qname, count, *, address="10.0.0.2", blocked="", ago=timedelta()):
+def log(qname, count, *, address="10.0.0.2", blocked=False, ago=timedelta()):
     Query.objects.bulk_create(
         Query(
             at=timezone.now() - ago,
@@ -27,7 +27,7 @@ def log(qname, count, *, address="10.0.0.2", blocked="", ago=timedelta()):
             qname=qname,
             qtype="A",
             rcode="NXDOMAIN" if blocked else "NOERROR",
-            blocked_by=blocked,
+            blocked=blocked,
         )
         for _ in range(count)
     )
@@ -36,7 +36,7 @@ def log(qname, count, *, address="10.0.0.2", blocked="", ago=timedelta()):
 @pytest.fixture
 def counted(db):
     """Eleven queries in the last day, and five from three days back."""
-    log("ads.example.com", 6, blocked=BlockedBy.FEED)
+    log("ads.example.com", 6, blocked=True)
     log("news.example.com", 2)
     log("cdn.example.com", 3, address="10.0.1.50")
     log("old.example.com", 5, ago=timedelta(days=3))

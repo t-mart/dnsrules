@@ -35,24 +35,6 @@ class Client(models.Model):
         return f"{self.name} ({self.address})"
 
 
-class BlockedBy(models.TextChoices):
-    """What stopped the answer. Empty means nothing did.
-
-    Measured against unbound 1.26.0, an answer carries one usable signal: a
-    policy NXDOMAIN clears the RA bit, where `rpz-signal-nxdomain-ra: yes` is
-    set on the zone. Nothing else separates a block from an ordinary answer.
-    The AA bit does not: unbound sets it for every local zone, including the
-    LAN names and `.invalid`.
-
-    That signal cannot name the zone, and it misses a `CNAME *.` rule outright,
-    because NODATA reads exactly like a legitimate empty answer. So a rule is
-    read from the rules table, which is exact, and the signal covers the feed.
-    """
-
-    RULE = "rule", "A dnsrules rule"
-    FEED = "feed", "The blocklist"
-
-
 class Query(models.Model):
     at = models.DateTimeField()
     client = models.GenericIPAddressField()
@@ -62,7 +44,11 @@ class Query(models.Model):
     # spelled that way, so one empty value is enough.
     rcode = models.CharField(max_length=16, blank=True)
     reply_ms = models.FloatField(null=True, blank=True)
-    blocked_by = models.CharField(max_length=8, choices=BlockedBy, blank=True)
+    # A policy NXDOMAIN clears the RA bit, where `rpz-signal-nxdomain-ra: yes`
+    # is set on the zone. That is the whole signal, and it is read from the
+    # answer itself. It cannot name the zone that acted, and it never sees a
+    # `CNAME *.` rule, because NODATA reads exactly like an empty answer.
+    blocked = models.BooleanField(default=False)
 
     objects = models.Manager()
 
@@ -71,15 +57,10 @@ class Query(models.Model):
         verbose_name_plural = "queries"
         indexes = [
             BrinIndex(fields=["at"], name="queries_query_at_brin"),
-            # The log table filters on these three.
+            # The log table filters on these two.
             models.Index(fields=["qname"], name="queries_query_qname"),
             models.Index(fields=["client"], name="queries_query_client"),
-            models.Index(fields=["blocked_by"], name="queries_query_blocked_by"),
         ]
 
     def __str__(self) -> str:
         return f"{self.qname} {self.qtype}"
-
-    @property
-    def blocked(self) -> bool:
-        return bool(self.blocked_by)

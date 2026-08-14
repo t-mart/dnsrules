@@ -97,39 +97,40 @@ signal at all, because NODATA reads exactly like a legitimate empty answer.
 
 ## 1. Stop attributing a block to a policy
 
-`blocked_by` holds `rule` or `feed` today. The `feed` half is the RA bit, which
-is correct. The `rule` half matches the query name against the rules table, and
-it is wrong now, before any of phase 2:
+Done. `blocked_by` held `rule` or `feed`. The `feed` half read the RA bit, which
+is correct. The `rule` half matched the query name against the rules table, and
+it was wrong before any of phase 2:
 
-- A wildcard rule never matches. `blocking_domains()` returns `*.example.com`
+- A wildcard rule never matched. `blocking_domains()` returned `*.example.com`
   verbatim, and the query name is `foo.example.com`.
-- A client with no tag gets no RPZ, so its query resolves. dnsrules sees the
-  name in the rules table and stamps `rule` anyway.
+- A client with no tag gets no RPZ, so its query resolves. dnsrules saw the name
+  in the rules table and stamped `rule` anyway.
 
-Many zones would add a third fault, because a name blocked in one zone would be
-stamped for a client in another. The signal is not worth repairing. Keep "was
-this blocked", drop "by what".
+Many zones would have added a third fault, because a name blocked in one zone
+would be stamped for a client in another. Keep "was this blocked", drop "by
+what".
 
-- [ ] `queries/services.py`: delete `blocking_domains`, `_bucketed`,
+- [x] `queries/services.py`: delete `blocking_domains`, `_bucketed`,
       `cached_blocking_domains`, and `RULES_TTL`. `blocked_by()` becomes
       `exchange.blocked`.
-- [ ] The ingest then imports nothing from the rules app. Keep it that way.
-- [ ] `queries/models.py`: delete `BlockedBy`. `Query.blocked_by` becomes a
+- [x] The ingest then imports nothing from the rules app. Keep it that way.
+- [x] `queries/models.py`: delete `BlockedBy`. `Query.blocked_by` becomes a
       `blocked` boolean, and the property of that name goes with it.
-- [ ] Drop the `queries_query_blocked_by` index. Two values give a planner
+- [x] Drop the `queries_query_blocked_by` index. Two values give a planner
       nothing that the BRIN on `at` does not already give it.
-- [ ] `stats.py` and `queries/views.py`: `~Q(blocked_by="")` becomes
-      `Q(blocked=True)`, in four places.
-- [ ] `queries/table.html`: drop the muted `rule` or `feed` label under the
+- [x] `stats.py` and `queries/views.py`: `~Q(blocked_by="")` becomes
+      `Q(blocked=True)`.
+- [x] `queries/table.html`: drop the muted `rule` or `feed` label under the
       blocked marker.
-- [ ] One migration for the field and the index.
+- [x] One migration for the field and the index. It carries the flag over, so a
+      row that read `rule` or `feed` still reads blocked.
 
-The dashboard does not change. Blocked over time, top blocked, and the blocked
+The dashboard did not change. Blocked over time, top blocked, and the blocked
 share of each client bar all read the boolean.
 
-The cost is that a `CNAME *.` rule becomes invisible in the log. It answers
-NOERROR with RA set, so nothing separates it from an ordinary empty answer. Say
-so in the README.
+The cost is that a `CNAME *.` rule is invisible in the log. It answers NOERROR
+with RA set, so nothing separates it from an ordinary empty answer. The README
+says so, and a test holds the behaviour.
 
 ## 2. Many zones
 

@@ -21,7 +21,7 @@ STEPS = {"minute": timedelta(minutes=1), "hour": timedelta(hours=1)}
 # A tick has room for a time. A tooltip has room for the day it fell on.
 TICK = "%H:%M"
 STAMPS = {"minute": "%a %H:%M", "hour": "%a %d %b %H:%M"}
-BLOCKED = ~Q(blocked_by="")
+BLOCKED = Q(blocked=True)
 
 
 @dataclass(frozen=True)
@@ -60,8 +60,7 @@ def _rows(since: datetime):
 
 def top(since: datetime, *, blocked: bool, limit: int = TOP) -> list[Bar]:
     """The names asked for most, either the stopped ones or the rest."""
-    rows = _rows(since)
-    rows = rows.exclude(blocked_by="") if blocked else rows.filter(blocked_by="")
+    rows = _rows(since).filter(blocked=blocked)
     counted = (
         rows.values("qname").annotate(count=Count("pk")).order_by("-count")[:limit]
     )

@@ -102,8 +102,7 @@
           <td>{{ row.qtype }}</td>
           <td>
             {% if row.blocked %}
-              <span class="blocked" title="{{ row.get_blocked_by_display }}">blocked</span>
-              <span class="muted small">{{ row.blocked_by }}</span>
+              <span class="blocked">blocked</span>
             {% elif row.rcode %}
               {{ row.rcode }}
             {% else %}

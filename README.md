@@ -5,14 +5,19 @@ A DNS log and block dashboard for
 sides of Pi-hole and AdGuard Home.
 
 - A dashboard counts the traffic over a window from 15 minutes to a week.
-- A query log lists every question a client asked, with the answer, the reply
-  time, and what stopped it. Filter by client, name, record type, status, and
-  time.
+- A query log lists every question a client asked, with the answer and the reply
+  time. Filter by client, name, record type, status, and time.
 - A rules page lists block rules or allow rules (for overriding an RPZ list).
   Add, edit, and delete them here, and read the result of the last transfer to
   Unbound.
 
-Limitation: dnsrules can only provide a single RPZ zone to unbound.
+Limitations:
+
+- dnsrules can only provide a single RPZ zone to unbound.
+- The log marks an answer blocked. It does not say which RPZ zone blocked it.
+  Unbound reports no zone, and no command maps a client to one.
+- A NODATA rule does not reach the log. That answer carries no signal that
+  separates it from an ordinary empty answer.
 
 ## Rules
 

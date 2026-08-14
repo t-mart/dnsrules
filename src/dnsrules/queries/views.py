@@ -78,9 +78,9 @@ def _filtered(request: Request):
     if terms["qtype"]:
         rows = rows.filter(qtype=terms["qtype"])
     if terms["status"] == "blocked":
-        rows = rows.exclude(blocked_by="")
+        rows = rows.filter(blocked=True)
     elif terms["status"] == "allowed":
-        rows = rows.filter(blocked_by="").exclude(rcode="")
+        rows = rows.filter(blocked=False).exclude(rcode="")
     elif terms["status"] == "noanswer":
         rows = rows.filter(rcode="")
     return rows, terms

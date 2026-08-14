@@ -3,66 +3,29 @@
 The pipeline: bytes, frames, records, exchanges, rows. Each stage is a
 generator, so memory holds one batch and the queries still waiting for an
 answer, never the whole stream.
+
+Nothing here reads the rules. A row records what the answer was, and never
+which zone made it that way. See "What dnsrules cannot know" in the TODO.
 """
 
 import logging
 import time
 from collections.abc import Iterable, Iterator
 from datetime import timedelta
-from functools import lru_cache
 
 from django.db import OperationalError, connection
 from django.utils import timezone
 
-from dnsrules.queries.models import BlockedBy, Query
-from dnsrules.rules.models import Rule
+from dnsrules.queries.models import Query
 from dnsrules.unbound import framestream, receiver
 from dnsrules.unbound.dnstap import Exchange, InvalidMessage, Record, decode, pair
 from dnsrules.unbound.framestream import InvalidStream
-from dnsrules.unbound.zone import Action
 
 logger = logging.getLogger(__name__)
 
 BATCH = 500
 INTERVAL = 1.0
 KEEP = timedelta(days=30)
-# Rules change by hand, so a minute of staleness costs at most a mislabelled
-# row. Reading the table for each of 250,000 rows a day would not.
-RULES_TTL = 60.0
-
-
-def blocking_domains() -> frozenset[str]:
-    """Every name a dnsrules rule blocks right now."""
-    return frozenset(
-        Rule.objects.active()
-        .exclude(action=Action.ALLOW)
-        .values_list("domain", flat=True)
-    )
-
-
-@lru_cache(maxsize=1)
-def _bucketed(bucket: int) -> frozenset[str]:
-    return blocking_domains()
-
-
-def cached_blocking_domains(ttl: float = RULES_TTL) -> frozenset[str]:
-    """`blocking_domains()`, read at most once in each `ttl` seconds.
-
-    The bucket is the cache key, so the old entry falls out on its own and
-    nothing here holds a timestamp.
-    """
-    return _bucketed(int(time.monotonic() // ttl))
-
-
-def blocked_by(exchange: Exchange, rules: frozenset[str]) -> str:
-    """Name what stopped this answer, or empty when nothing did.
-
-    A rule is checked first, and it is exact. The in-band signal covers the
-    feed, and it cannot see a NODATA rule at all.
-    """
-    if exchange.qname in rules:
-        return BlockedBy.RULE
-    return BlockedBy.FEED if exchange.blocked else ""
 
 
 def retention(keep: timedelta = KEEP) -> int:
@@ -91,7 +54,6 @@ def store(exchanges: Iterable[Exchange]) -> int:
     Retries once on a broken connection, because the database is on another
     host and a restart there must not end the ingest.
     """
-    rules = cached_blocking_domains()
     rows = [
         Query(
             at=exchange.at,
@@ -100,7 +62,7 @@ def store(exchanges: Iterable[Exchange]) -> int:
             qtype=exchange.qtype,
             rcode=exchange.rcode or "",
             reply_ms=exchange.reply_ms,
-            blocked_by=blocked_by(exchange, rules),
+            blocked=exchange.blocked,
         )
         for exchange in exchanges
     ]
