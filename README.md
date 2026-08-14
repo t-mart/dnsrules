@@ -1,6 +1,6 @@
 # dnsrules
 
-A DNS log and block dashboard for
+A DNS log and block management site for
 [Unbound](https://github.com/NLnetLabs/unbound). Similar to the DNS management
 sides of Pi-hole and AdGuard Home.
 
