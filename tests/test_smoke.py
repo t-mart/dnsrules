@@ -11,7 +11,28 @@ def test_settings_import_with_an_empty_environment():
     """The install procedure runs commands before the environment file exists."""
     env = {key: value for key, value in os.environ.items() if key == "PATH"}
     subprocess.run(
-        [sys.executable, "-c", "import dnsrules.settings"],
+        [
+            sys.executable,
+            "-c",
+            "import dnsrules.settings as s; "
+            "assert not s.SESSION_COOKIE_SECURE; "
+            "assert not s.CSRF_COOKIE_SECURE",
+        ],
+        check=True,
+        env=env,
+    )
+
+
+def test_secure_cookies_follow_the_environment():
+    env = os.environ | {"DNSRULES_SECURE_COOKIES": "true"}
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import dnsrules.settings as s; "
+            "assert s.SESSION_COOKIE_SECURE; "
+            "assert s.CSRF_COOKIE_SECURE",
+        ],
         check=True,
         env=env,
     )

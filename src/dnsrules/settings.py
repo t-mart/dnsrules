@@ -143,11 +143,12 @@ LOGOUT_REDIRECT_URL = "login"
 SESSION_COOKIE_AGE = 60 * 60 * 8
 SESSION_COOKIE_SAMESITE = "Lax"
 
-# Never force Secure. This is the tool you reach for when the proxy is down, so
-# plain HTTP on the LAN has to keep working. Django sets Secure per request when
-# that request already arrived over HTTPS.
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
+# Secure cookies stop authentication over plain HTTP. The default keeps direct
+# LAN access available when the reverse proxy is down. If every access path
+# uses HTTPS, enable this setting.
+SECURE_COOKIES = env_bool("SECURE_COOKIES")
+SESSION_COOKIE_SECURE = SECURE_COOKIES
+CSRF_COOKIE_SECURE = SECURE_COOKIES
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = env("TIME_ZONE", "UTC")

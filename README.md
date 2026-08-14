@@ -137,6 +137,7 @@ Every setting is a `DNSRULES_` environment variable.
 | `BIND`                         | The address and port the website answers on. |
 | `ALLOWED_HOSTS`                | The host names the site accepts.             |
 | `CSRF_TRUSTED_ORIGINS`         | Extra origins, for a reverse proxy.          |
+| `SECURE_COOKIES`               | Marks login cookies as HTTPS-only.           |
 | `TIME_ZONE`                    | The zone the site prints times in.           |
 | `DB_NAME`, `DB_USER`, `DB_...` | The PostgreSQL connection.                   |
 | `DNSTAP_HOST`, `DNSTAP_PORT`   | Where Unbound sends the query stream.        |
