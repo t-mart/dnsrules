@@ -220,24 +220,37 @@ query log cannot tell a blocked name from a name that does not exist.
 
 ### More than one zone
 
-Set `DNSRULES_RPZ_ZONES=dnsrules,kids` and write an `rpz` clause for each name.
-Give each clause its own tag, and tag the clients that zone must reach:
+dnsrules can serve more than one RPZ zone. Each zone has its own URL, and each
+zone can reach only the clients that carry its tag. This lets you build groups
+of clients that see different rules.
+
+For example, on dnsrules, set `DNSRULES_RPZ_ZONES=group1,group2`. Then, in
+`unbound.conf`:
 
 ```
-    define-tag: "filtered kids"
-    access-control-tag: 10.0.0.30/32 "filtered kids"
+server:
+    define-tag: "group1 group2"
+    access-control-tag: 10.0.0.30/32 "group1"
+    access-control-tag: 10.0.0.31/32 "group2"
+
+rpz:
+    name: "group1" # name must match the one in `DNSRULES_RPZ_ZONES`
+    tags: "group1"
+    url: "http://127.0.0.1:8000/rpz/group1.zone"  # is also the name of RPZ zone file
+
+rpz:
+    name: "group2"
+    tags: "group2"
+    url: "http://127.0.0.1:8000/rpz/group2.zone"
 ```
 
-Then a rule in the `kids` zone reaches those clients alone. dnsrules serves each
-zone at its own URL, transfers each one, and the rules page gives each its own
-section. From the query log, "Every zone" writes the rule to all of them.
-
-Unbound decides who a zone reaches, and it reports that to nothing. Keep the
-tags in `unbound.conf` and the names in `RPZ_ZONES` in step by hand.
+dnsrules serves each zone at its own URL, transfers each one, and the rules page
+gives each its own section. From the query log, "Every zone" writes the rule to
+all of them.
 
 It may be ideal to keep `dnstap-ip` and `control-interface` on `127.0.0.1`. The
-dnstap stream exposes browsing history, and remote control has no password, so
-whoever reaches that port can drive the resolver.
+dnstap stream exposes browsing history, and remote control can drive the
+Unbound.
 
 ## Jobs
 
