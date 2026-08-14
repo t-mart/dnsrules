@@ -33,6 +33,10 @@ control *ARGS:
 dig *ARGS:
     docker exec dnsrules-unbound dig +noall +comments +answer @127.0.0.1 {{ ARGS }}
 
+# print the answer flags that dnstap carries, one line per query
+probe:
+    uv run python dev/probe.py
+
 # stand in for the router's /etc/unbound, which no development machine has
 var:
     mkdir --parents var

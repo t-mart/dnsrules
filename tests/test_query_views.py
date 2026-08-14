@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from dnsrules.queries.models import Query
+from dnsrules.queries.models import BlockedBy, Query
 from dnsrules.rules import services
 from dnsrules.rules.models import Group, Rule, Source
 from dnsrules.unbound.zone import Action
@@ -28,7 +28,7 @@ def logged(zone_settings):
         client="10.0.0.2",
         qname="ads.example.com",
         qtype="A",
-        blocked=True,
+        blocked_by=BlockedBy.FEED,
         rcode="NXDOMAIN",
     )
     Query.objects.create(

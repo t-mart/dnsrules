@@ -101,12 +101,24 @@ clients outside it. Phase 9 adds the tags that make a group mean something.
 
 ## 4. Mark a row blocked
 
-The current signal reads NXDOMAIN with the RA bit cleared. That finds a
-blocklist hit, and it misses every `CNAME *.` rule, because those answer NOERROR.
+Done. Measured with `just probe`, against unbound 1.26.0:
 
-- [ ] Decide the signal. The rules table names every rule dnsrules made, and the
-      RPZ log line names the zone for a feed hit.
-- [ ] Show which zone blocked a row, so a feed hit reads differently from a rule.
+| Case | rcode | AA | RA |
+| --- | --- | --- | --- |
+| Feed block, `rpz-signal-nxdomain-ra: yes` | NXDOMAIN | yes | **no** |
+| Rule `CNAME .`, same option | NXDOMAIN | yes | **no** |
+| Rule `CNAME *.` | NOERROR | yes | yes |
+| Ordinary answer | NOERROR | no | yes |
+| `.invalid`, a built in local zone | NXDOMAIN | yes | yes |
+
+- [x] A cleared RA bit is the only usable in-band signal. AA is not: unbound
+      sets it for every local zone, including the LAN names and `.invalid`.
+- [x] `CNAME *.` has no in-band signal at all. NODATA reads exactly like a
+      legitimate empty answer, so the rules table is the only way to see one.
+- [x] `Query.blocked_by` holds `rule` or `feed`, stamped at ingest. A rule is
+      matched against the table and is exact. The signal covers the feed.
+- [x] The rule set is cached for a minute, so 250,000 rows a day cost one read.
+- [x] The log says which one stopped a row.
 
 ## 5. Clients in the UI
 
@@ -147,6 +159,7 @@ starts until one rule set for the house is not enough.
 | Enable remote control on `127.0.0.1` with `control-use-cert: no` | phase 1 |
 | Point the `runtime_rules` RPZ zone at `/rpz/<group>.zone`. Keep its `zonefile` | phase 1 |
 | Remove `dont_block` and the `privacy_blocklist_overrides` zone | phase 1 |
+| Set `rpz-signal-nxdomain-ra: yes` on `runtime_rules`, as the feed has | phase 4 |
 | Remove the `firefox_doh_disabled` view | phase 1 |
 | Uncomment the `dnstap` block. It is off in the template today | the query log |
 | Open the website port in `vars/nftables.yml` | reaching the site |

@@ -1,3 +1,4 @@
+import ipaddress
 import socket
 import threading
 from datetime import timedelta
@@ -5,10 +6,15 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from dnsrules.queries.models import Query
-from dnsrules.queries.services import ingest, retention, store
+from dnsrules.queries.models import BlockedBy, Query
+from dnsrules.queries.services import (
+    blocked_by,
+    ingest,
+    retention,
+    store,
+)
 from dnsrules.unbound import receiver
-from dnsrules.unbound.dnstap import decode, pair
+from dnsrules.unbound.dnstap import Exchange, decode, pair
 from dnsrules.unbound.framestream import read
 
 pytestmark = pytest.mark.django_db
@@ -27,7 +33,7 @@ def test_the_rows_carry_what_the_capture_carried(dnstap_capture):
     ingest([dnstap_capture])
     rows = Query.objects.all()
     assert rows.filter(qname="").count() == 0
-    assert rows.filter(blocked=True).count() > 0
+    assert rows.exclude(blocked_by="").count() > 0
     assert rows.exclude(reply_ms=None).count() > 0
 
 
@@ -124,3 +130,38 @@ def test_retention_with_nothing_old_deletes_nothing():
     )
     assert retention() == 0
     assert Query.objects.count() == 1
+
+
+def exchange(qname, blocked):
+    """An Exchange the way `pair` builds one."""
+    return Exchange(
+        at=timezone.now(),
+        client=ipaddress.ip_address("10.0.0.2"),
+        qname=qname,
+        qtype="A",
+        rcode="NXDOMAIN" if blocked else "NOERROR",
+        recursion_available=not blocked,
+        reply_ms=1.0,
+    )
+
+
+def test_the_in_band_signal_names_the_feed():
+    """A policy NXDOMAIN clears RA. Nothing else in an answer says so."""
+    assert blocked_by(exchange("ads.example.com", True), frozenset()) == BlockedBy.FEED
+
+
+def test_an_ordinary_answer_is_not_blocked():
+    assert blocked_by(exchange("www.example.com", False), frozenset()) == ""
+
+
+def test_a_rule_wins_over_the_signal():
+    """The rules table is exact. The signal cannot name the zone."""
+    rules = frozenset({"ads.example.com"})
+    assert blocked_by(exchange("ads.example.com", True), rules) == BlockedBy.RULE
+
+
+def test_a_nodata_rule_is_caught_only_by_the_table():
+    """`CNAME *.` answers NOERROR, which no flag tells from an empty answer."""
+    row = exchange("use-application-dns.net", False)
+    assert blocked_by(row, frozenset()) == ""
+    assert blocked_by(row, frozenset({"use-application-dns.net"})) == BlockedBy.RULE

@@ -96,7 +96,9 @@
           <td class="py-1">{{ row.qtype }}</td>
           <td class="py-1">
             {% if row.blocked %}
-              <span class="font-medium text-red-700 dark:text-red-400">blocked</span>
+              <span class="font-medium text-red-700 dark:text-red-400"
+                    title="{{ row.get_blocked_by_display }}">blocked</span>
+              <span class="text-xs text-slate-500">{{ row.blocked_by }}</span>
             {% elif row.rcode %}
               {{ row.rcode }}
             {% else %}

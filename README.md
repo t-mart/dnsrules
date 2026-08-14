@@ -181,6 +181,24 @@ query takes the next answer.
 row. Block or allow a name from the row that shows it, for an hour or for good.
 A second click replaces the first rule rather than adding a second one.
 
+### What stopped an answer
+
+`blocked_by` holds `rule` or `feed`, and it is stamped at ingest. The two come
+from different places, because one answer cannot say both.
+
+A blocked answer carries exactly one usable signal: `rpz-signal-nxdomain-ra:
+yes` clears the RA bit on a policy NXDOMAIN. That covers the feed. It cannot
+name the zone, and it never sees a `CNAME *.` rule, because NODATA reads exactly
+like a legitimate empty answer.
+
+So a rule is read from the rules table instead, which is exact and also names
+it. The table is cached for a minute, so a day of rows costs one read.
+
+The AA bit looks like a better signal and is not. unbound sets it for every
+local zone, including the LAN names and `.invalid`.
+
+Run `just probe` next to `just unbound` to see the flags for yourself.
+
 Rows live 30 days, in one table, and the retention job deletes the rest.
 Measured on one sample, the house makes about 250,000 queries a day, so that is
 near 7.5 million rows. Postgres does not notice that many, and `at` carries a
