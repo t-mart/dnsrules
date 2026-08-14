@@ -1,9 +1,11 @@
 import io
 from datetime import timedelta
+from importlib import import_module
 
 import pytest
 import yaml
 from conftest import rules_in
+from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import IntegrityError
@@ -75,18 +77,31 @@ def test_defaults_are_a_permanent_manual_block(kids):
     assert rule.is_expired is False
 
 
+def test_nodata_migration_turns_old_rules_into_blocks(kids):
+    rule = make(kids, "old.example.com")
+    Rule.objects.filter(pk=rule.pk).update(action="block_nodata")
+    migration = import_module(
+        "dnsrules.rules.migrations.0003_replace_nodata_with_block"
+    )
+
+    migration.replace_nodata(apps, None)
+
+    rule.refresh_from_db()
+    assert rule.action == Action.BLOCK
+
+
 def test_zone_text_holds_only_that_group(zone_settings):
     kids, adults = Group.objects.get(name="kids"), Group.objects.get(name="adults")
     make(kids, "block.example.com", Action.BLOCK)
     make(kids, "allow.example.com", Action.ALLOW)
-    make(adults, "nodata.example.com", Action.BLOCK_NODATA)
+    make(adults, "other.example.com", Action.BLOCK)
     make(kids, "gone.example.com", expires_at=timezone.now() - timedelta(minutes=1))
 
     assert rules_in(services.zone_text(kids)) == [
         "allow.example.com CNAME rpz-passthru.",
         "block.example.com CNAME .",
     ]
-    assert rules_in(services.zone_text(adults)) == ["nodata.example.com CNAME *."]
+    assert rules_in(services.zone_text(adults)) == ["other.example.com CNAME ."]
 
 
 def test_zone_text_with_no_rules_is_the_header_alone(zone_settings):

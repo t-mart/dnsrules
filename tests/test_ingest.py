@@ -149,12 +149,3 @@ def test_a_blocked_answer_is_stored_as_blocked():
 def test_an_ordinary_answer_is_stored_as_allowed():
     store([exchange("www.example.com", False)])
     assert Query.objects.get().blocked is False
-
-
-def test_a_nodata_rule_is_invisible_to_the_log():
-    """`CNAME *.` answers NOERROR with RA set, which no flag tells from an
-    ordinary empty answer. A rule of that kind does not reach the log, and
-    reading the rules table here would not fix it: nothing says which zone
-    reached this client."""
-    store([exchange("use-application-dns.net", False)])
-    assert Query.objects.get().blocked is False

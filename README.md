@@ -14,42 +14,21 @@ sides of Pi-hole and AdGuard Home.
 
 A rule is a domain and an action. Wildcards are accepted, as `*.example.com`.
 
-| Action               | Answer             | Use it for                            |
-| -------------------- | ------------------ | ------------------------------------- |
-| Block                | NXDOMAIN           | a name you do not want resolved       |
-| Block, answer NODATA | NOERROR, no answer | a name that must exist but stay empty |
-| Allow                | the real answer    | a false positive in the blocklist     |
+| Action | Answer          | Use it for                        |
+| ------ | --------------- | --------------------------------- |
+| Block  | NXDOMAIN        | a name you do not want resolved   |
+| Allow  | the real answer | a false positive in the blocklist |
 
-In most cases, you will write NXDOMAIN rules to block a name. This indicates to
-applications that the name does not exist.
+A block rule tells clients that the name does not exist.
 
-A NODATA rule is useful when you want an application to see that a name exists,
-but not the records on it. (I actually don't even know why I'd want that, but
-whatever.) Note: A NODATA rule does not reach the log. TODO: should we delete
-the NODATA option?
-
-Allow rules are helpful to override later RPZ zones that block it. For example,
-you might configure a client to use a blocklist, but you need to reach a site
-that it blocks. In this case, you can override it with an allow rule for that
-domain that will take precedence.
+Allow rules ensure that the name is resolved, despite being in a later
+blocklist. For example, you might want the broad coverage that a blocklist
+provides, but not for some specific names. In this case, you can configure
+Unbound to first apply the dnsrules zone, then the blocklist. (In Unbound, the
+first match wins.)
 
 A rule is permanent, or it expires after 15 minutes, an hour, 8 hours, a day, or
 a week.
-
-## How it works
-
-To get query log information, dnsrules consumes Unbound's dnstap stream and
-writes it to PostgreSQL. The web interface reads the log from the database.
-
-This makes it easy to see which rules are being applied to which clients.
-
-dnsrules renders the rules as an RPZ zone and serves it over HTTP. Then, Unbound
-can consume it just like any other in its config. To prompt Unbound to refetch
-the rules when you change them, dnsrules uses Unbound's remote control.
-
-When configured, Unbound does not depend on dnsrules. This is important: if
-dnsrules encounters a problem, Unbound will still work. (However, the rules may
-be stale until the problem is fixed.)
 
 ## Requirements
 
@@ -224,24 +203,24 @@ dnsrules can serve more than one RPZ zone. Each zone has its own URL, and each
 zone can reach only the clients that carry its tag. This lets you build groups
 of clients that see different rules.
 
-For example, on dnsrules, set `DNSRULES_RPZ_ZONES=group1,group2`. Then, in
-`unbound.conf`:
+For example, on dnsrules, set `DNSRULES_RPZ_ZONES=strictprivacy,permissive`.
+Then, in `unbound.conf`:
 
 ```
 server:
-    define-tag: "group1 group2"
-    access-control-tag: 10.0.0.30/32 "group1"
-    access-control-tag: 10.0.0.31/32 "group2"
+    define-tag: "homedevice workdevice"
+    access-control-tag: 10.0.0.30/32 "homedevice"
+    access-control-tag: 10.0.0.31/32 "workdevice"
 
 rpz:
-    name: "group1" # name must match the one in `DNSRULES_RPZ_ZONES`
-    tags: "group1"
-    url: "http://127.0.0.1:8000/rpz/group1.zone"  # is also the name of RPZ zone file
+    name: "strictprivacy" # name must match the one in `DNSRULES_RPZ_ZONES`
+    tags: "homedevice"
+    url: "http://127.0.0.1:8000/rpz/strictprivacy.zone"  # is also the name of RPZ zone file
 
 rpz:
-    name: "group2"
-    tags: "group2"
-    url: "http://127.0.0.1:8000/rpz/group2.zone"
+    name: "permissive" # name must match the one in `DNSRULES_RPZ_ZONES`
+    tags: "workdevice"
+    url: "http://127.0.0.1:8000/rpz/permissive.zone"
 ```
 
 dnsrules serves each zone at its own URL, transfers each one, and the rules page
@@ -252,7 +231,22 @@ It may be ideal to keep `dnstap-ip` and `control-interface` on `127.0.0.1`. The
 dnstap stream exposes browsing history, and remote control can drive the
 Unbound.
 
-## Jobs
+## How it works
+
+To get query log information, dnsrules consumes Unbound's dnstap stream and
+writes it to PostgreSQL. The web interface reads the log from the database.
+
+This makes it easy to see which rules are being applied to which clients.
+
+dnsrules renders the rules as an RPZ zone and serves it over HTTP. Then, Unbound
+can consume it just like any other in its config. To prompt Unbound to refetch
+the rules when you change them, dnsrules uses Unbound's remote control.
+
+When configured, Unbound does not depend on dnsrules. This is important: if
+dnsrules encounters a problem, Unbound will still work. (However, the rules may
+be stale until the problem is fixed.)
+
+### Jobs
 
 Three jobs run in the background.
 

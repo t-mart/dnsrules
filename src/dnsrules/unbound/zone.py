@@ -25,14 +25,12 @@ class Action(enum.StrEnum):
     """What a rule does. The value is what the database stores."""
 
     BLOCK = "block"
-    BLOCK_NODATA = "block_nodata"
     ALLOW = "allow"
 
 
 # The complete set of right hand sides. A rule chooses one. Nothing builds one.
 RIGHT_HAND_SIDE = {
     Action.BLOCK: "CNAME .",  # answer NXDOMAIN
-    Action.BLOCK_NODATA: "CNAME *.",  # answer NODATA
     Action.ALLOW: "CNAME rpz-passthru.",  # skip every later zone
 }
 

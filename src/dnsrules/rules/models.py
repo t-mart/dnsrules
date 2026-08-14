@@ -21,7 +21,6 @@ NAME_MAX_LENGTH = 64
 
 ACTION_CHOICES = [
     (Action.BLOCK.value, "Block, answer NXDOMAIN"),
-    (Action.BLOCK_NODATA.value, "Block, answer NODATA"),
     (Action.ALLOW.value, "Allow, skip the blocklist"),
 ]
 

@@ -46,6 +46,13 @@ def test_the_page_lists_a_group_for_each_entry(client, admin, zone_settings):
     assert "adults" in body
 
 
+def test_the_rule_form_offers_block_and_allow(client, admin, zone_settings):
+    body = client.get("/rules/").content.decode()
+    assert "Block, answer NXDOMAIN" in body
+    assert "Allow, skip the blocklist" in body
+    assert "NODATA" not in body
+
+
 def test_the_zone_picker_is_a_choice_only_when_there_is_one(
     client, admin, zone_settings
 ):

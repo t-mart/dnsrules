@@ -24,11 +24,10 @@ Outstanding work. Each phase leaves the project in a working state.
 
 One rule is one line of the zone:
 
-| Action             | Line                           | Answer                             |
-| ------------------ | ------------------------------ | ---------------------------------- |
-| Block              | `<domain> CNAME .`             | NXDOMAIN                           |
-| Block with no data | `<domain> CNAME *.`            | NOERROR, no answer                 |
-| Allow              | `<domain> CNAME rpz-passthru.` | Resolve, and skip every later zone |
+| Action | Line                           | Answer                             |
+| ------ | ------------------------------ | ---------------------------------- |
+| Block  | `<domain> CNAME .`             | NXDOMAIN                           |
+| Allow  | `<domain> CNAME rpz-passthru.` | Resolve, and skip every later zone |
 
 A dnsrules zone comes before the blocklist, so an allow beats a block. dnsrules
 owns the whole zone text, including the SOA. The serial must rise on each
@@ -86,14 +85,12 @@ The flags on an answer, measured with `just probe`:
 | ----------------------------------------- | -------- | --- | ------ |
 | Feed block, `rpz-signal-nxdomain-ra: yes` | NXDOMAIN | yes | **no** |
 | Rule `CNAME .`, same option               | NXDOMAIN | yes | **no** |
-| Rule `CNAME *.`                           | NOERROR  | yes | yes    |
 | Ordinary answer                           | NOERROR  | no  | yes    |
 | `.invalid`, a built in local zone         | NXDOMAIN | yes | yes    |
 
 A cleared RA bit is the only usable in-band signal, and it says that an answer
 was blocked. It cannot name the zone. AA is not a signal: unbound sets it for
-every local zone, including the LAN names and `.invalid`. `CNAME *.` has no
-signal at all, because NODATA reads exactly like a legitimate empty answer.
+every local zone, including the LAN names and `.invalid`.
 
 ## 1. Stop attributing a block to a policy
 
@@ -127,10 +124,6 @@ what".
 
 The dashboard did not change. Blocked over time, top blocked, and the blocked
 share of each client bar all read the boolean.
-
-The cost is that a `CNAME *.` rule is invisible in the log. It answers NOERROR
-with RA set, so nothing separates it from an ordinary empty answer. The README
-says so, and a test holds the behaviour.
 
 ## 2. Many zones
 
@@ -204,6 +197,6 @@ so at the next fetch.
 
 ## 5. By hand, once a resolver serves a zone
 
-- [ ] Add `use-application-dns.net` as a block-with-no-data rule. It is the
-      Firefox DoH canary. As a rule it reaches every tagged client, where a view
-      reaches only the flagged hosts.
+- [ ] Add `use-application-dns.net` as a block rule. It is the Firefox DoH
+      canary. As a rule it reaches every tagged client, where a view reaches
+      only the flagged hosts.

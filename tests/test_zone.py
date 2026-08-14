@@ -29,14 +29,12 @@ def test_render_writes_one_line_per_rule():
         [
             Record("b.example.com", Action.BLOCK),
             Record("a.example.com", Action.ALLOW),
-            Record("c.example.com", Action.BLOCK_NODATA),
         ],
         1,
     )
     assert rules_in(text) == [
         "a.example.com CNAME rpz-passthru.",
         "b.example.com CNAME .",
-        "c.example.com CNAME *.",
     ]
     assert text.endswith("\n")
 
@@ -99,7 +97,6 @@ def test_render_refuses_an_action_outside_the_table():
 def test_every_action_has_exactly_one_right_hand_side():
     assert set(RIGHT_HAND_SIDE) == set(Action)
     assert sorted(RIGHT_HAND_SIDE.values()) == [
-        "CNAME *.",
         "CNAME .",
         "CNAME rpz-passthru.",
     ]

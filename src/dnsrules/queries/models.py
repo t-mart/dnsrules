@@ -46,8 +46,7 @@ class Query(models.Model):
     reply_ms = models.FloatField(null=True, blank=True)
     # A policy NXDOMAIN clears the RA bit, where `rpz-signal-nxdomain-ra: yes`
     # is set on the zone. That is the whole signal, and it is read from the
-    # answer itself. It cannot name the zone that acted, and it never sees a
-    # `CNAME *.` rule, because NODATA reads exactly like an empty answer.
+    # answer itself. It cannot name the zone that acted.
     blocked = models.BooleanField(default=False)
 
     objects = models.Manager()
